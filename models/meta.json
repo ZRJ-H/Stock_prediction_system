@@ -1,0 +1,11 @@
+{
+  "window_size": 60,
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "vol"
+  ],
+  "backend": "sklearn_mlp_fallback"
+}
