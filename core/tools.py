@@ -183,6 +183,66 @@ def _tool_compare_stocks(codes: str) -> str:
     return "\n".join(lines)
 
 
+# ── New tool implementations (Iter 2) ───────────────────────
+
+
+def _tool_calc_indicators(code: str, days: str = "90") -> str:
+    from core.indicators import calc_all_indicators
+    try:
+        n_days = int(days)
+    except ValueError:
+        n_days = 90
+    bundle = calc_all_indicators(code, days=n_days)
+    return bundle.format()
+
+
+def _tool_get_financials(code: str) -> str:
+    from core.fundamentals import fetch_financials
+    report = fetch_financials(code)
+    return report.format()
+
+
+def _tool_get_news(code: str, keyword: str = "") -> str:
+    from core.news import fetch_news
+    bundle = fetch_news(code, keyword=keyword)
+    return bundle.format()
+
+
+def _tool_search_knowledge(query: str) -> str:
+    from core.rag_service import RAGService
+    rag = RAGService()
+    rag.initialize()
+    return rag.search_formatted(query)
+
+
+def _tool_analyze_stock(code: str) -> str:
+    info = _tool_get_stock_info(code)
+    indicators = _tool_calc_indicators(code, days="90")
+    predict = _tool_predict_stock(code)
+    return (
+        f"==== 综合分析报告 ====\n\n"
+        f"--- 实时行情 ---\n{info}\n\n"
+        f"--- 技术指标 ---\n{indicators}\n\n"
+        f"--- 模型预测 ---\n{predict}\n\n"
+        f"⚠️ 综合分析仅供参考，不构成投资建议。"
+    )
+
+
+def _tool_screen_stocks(strategy: str = "综合评分") -> str:
+    from core.screener import screen_stocks
+    return screen_stocks(strategy=strategy)
+
+
+def _tool_recommend_stock(style: str = "综合评分") -> str:
+    from core.screener import recommend_stock
+    return recommend_stock(style=style)
+
+
+def _tool_update_preference(key: str, value: str) -> str:
+    from core.memory import update_preference
+    return update_preference("default", key, value)
+
+
 # ── Tool registry ─────────────────────────────────────────
 
 ALL_TOOLS: List[ToolDef] = [
@@ -219,9 +279,85 @@ ALL_TOOLS: List[ToolDef] = [
         parameters={"codes": {"type": "string", "description": "股票代码列表，逗号分隔，如600519,000001"}},
         handler=_tool_compare_stocks,
     ),
+    ToolDef(
+        name="calc_indicators",
+        description="计算股票技术指标：MA均线系统、MACD（金叉/死叉）、RSI、BOLL布林带、KDJ、成交量比。用于技术面分析。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码"},
+            "days": {"type": "string", "description": "计算天数，默认90"},
+        },
+        handler=_tool_calc_indicators,
+    ),
+    ToolDef(
+        name="get_financials",
+        description="获取股票核心财务指标：营业总收入、净利润、ROE、毛利率、资产负债率、每股收益等。用于基本面分析。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码"}},
+        handler=_tool_get_financials,
+    ),
+    ToolDef(
+        name="get_news",
+        description="获取股票近期相关新闻和公告。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码"},
+            "keyword": {"type": "string", "description": "可选：新闻关键词过滤"},
+        },
+        handler=_tool_get_news,
+    ),
+    ToolDef(
+        name="search_knowledge",
+        description="从投资知识库中检索专业的投资策略、分析方法、风险控制等相关知识。当用户询问理论性问题（如什么是XX指标、如何止损）时使用。",
+        parameters={"query": {"type": "string", "description": "知识检索查询语句"}},
+        handler=_tool_search_knowledge,
+    ),
+    ToolDef(
+        name="analyze_stock",
+        description="对一只股票进行综合分析，包括实时行情、技术指标、模型预测，一次调用产出完整报告。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码"}},
+        handler=_tool_analyze_stock,
+    ),
+    ToolDef(
+        name="screen_stocks",
+        description="按策略筛选股票并排名。支持策略：超卖反弹、趋势强势、低估值、高股息、综合评分。返回Top5候选及推荐理由。",
+        parameters={"strategy": {"type": "string", "description": "策略名称：超卖反弹/趋势强势/低估值/高股息/综合评分，默认综合评分"}},
+        handler=_tool_screen_stocks,
+    ),
+    ToolDef(
+        name="recommend_stock",
+        description="根据投资风格推荐股票。风格：短线/趋势/价值/稳健。当用户要求推荐、荐股、选股时使用。",
+        parameters={"style": {"type": "string", "description": "投资风格：短线/趋势/价值/稳健，默认综合"}},
+        handler=_tool_recommend_stock,
+    ),
+    ToolDef(
+        name="update_preference",
+        description="更新用户偏好设置，如关注股票列表、分析风格偏好、风险承受能力。",
+        parameters={
+            "key": {"type": "string", "description": "偏好项：watchlist, preferred_style, risk_tolerance"},
+            "value": {"type": "string", "description": "偏好值"},
+        },
+        handler=_tool_update_preference,
+    ),
 ]
 
 TOOL_MAP: Dict[str, ToolDef] = {t.name: t for t in ALL_TOOLS}
+
+# ── Tool groups (reduce LLM selection burden) ────────────
+
+_BASIC_TOOLS = {"search_stock", "get_stock_info", "get_stock_history"}
+_TECHNICAL_TOOLS = _BASIC_TOOLS | {"calc_indicators", "predict_stock"}
+_FULL_TOOLS = _TECHNICAL_TOOLS | {"get_financials", "get_news", "compare_stocks", "analyze_stock", "screen_stocks", "recommend_stock"}
+_KNOWLEDGE_TOOLS = {"search_knowledge", "update_preference"}
+
+TOOL_GROUPS: Dict[str, set] = {
+    "basic": _BASIC_TOOLS,
+    "technical": _TECHNICAL_TOOLS,
+    "full": _FULL_TOOLS | _KNOWLEDGE_TOOLS,
+    "knowledge": _KNOWLEDGE_TOOLS,
+}
+
+
+def get_tools_for_group(group: str) -> List[ToolDef]:
+    names = TOOL_GROUPS.get(group, _FULL_TOOLS | _KNOWLEDGE_TOOLS)
+    return [TOOL_MAP[n] for n in names if n in TOOL_MAP]
 
 
 def run_tool(name: str, args: Dict[str, Any]) -> str:

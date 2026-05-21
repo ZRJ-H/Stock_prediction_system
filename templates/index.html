@@ -73,14 +73,15 @@
     <h1>股票分析助手</h1>
     <span id="modelStatus" class="status off">检测中...</span>
     <span id="llmStatus" class="status off">LLM 检测中...</span>
+    <span id="ragStatus" class="status off">RAG</span>
   </div>
 
   <div class="suggestions" id="suggestions">
-    <button onclick="send('搜索平安银行')">搜索平安银行</button>
-    <button onclick="send('查询 600519 的行情')">贵州茅台行情</button>
-    <button onclick="send('000001 近期走势')">平安银行走势</button>
-    <button onclick="send('预测 600519 涨跌')">预测茅台涨跌</button>
-    <button onclick="send('对比 600519 和 000858')">茅台vs五粮液</button>
+    <button onclick="send('分析 000001 的技术指标')">技术指标</button>
+    <button onclick="send('综合分析 600519')">综合分析</button>
+    <button onclick="send('什么是金叉死叉')">投资知识</button>
+    <button onclick="send('茅台最近有什么新闻')">新闻舆情</button>
+    <button onclick="send('对比 600519 和 000858')">多股对比</button>
   </div>
 
   <div class="chat-container" id="chat"></div>
@@ -96,6 +97,13 @@
     const input = document.getElementById('queryInput');
     const sendBtn = document.getElementById('sendBtn');
 
+    // Session ID management
+    let sessionId = localStorage.getItem('stock_session_id');
+    if (!sessionId) {
+      sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
+      localStorage.setItem('stock_session_id', sessionId);
+    }
+
     fetch('/health')
       .then(r => r.json())
       .then(d => {
@@ -103,6 +111,8 @@
         document.getElementById('modelStatus').className = 'status ' + (d.model_loaded ? 'ok' : 'off');
         document.getElementById('llmStatus').textContent = d.llm_available ? 'LLM已连接' : 'LLM离线';
         document.getElementById('llmStatus').className = 'status ' + (d.llm_available ? 'ok' : 'off');
+        document.getElementById('ragStatus').textContent = d.rag_ready ? '知识库OK' : '知识库未加载';
+        document.getElementById('ragStatus').className = 'status ' + (d.rag_ready ? 'ok' : 'off');
       });
 
     function addMsg(role, text) {
@@ -142,7 +152,7 @@
       fetch('/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query: text})
+        body: JSON.stringify({query: text, session_id: sessionId})
       })
       .then(r => r.json())
       .then(d => {

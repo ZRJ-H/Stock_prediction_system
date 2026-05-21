@@ -6,3 +6,5 @@ tensorflow
 joblib
 akshare
 requests
+sentence-transformers
+faiss-cpu
