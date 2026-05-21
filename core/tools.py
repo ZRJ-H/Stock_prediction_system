@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
+
+import pandas as pd
+
+from core.market_data import (
+    StockQuote,
+    get_batch_quotes,
+    get_daily_kline,
+    get_realtime_quote,
+    kline_to_dataframe,
+    search_stock,
+)
+
+
+@dataclass
+class ToolDef:
+    name: str
+    description: str
+    parameters: Dict[str, Dict[str, str]]
+    handler: Callable[..., str]
+
+    def to_openai_tool(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": self.parameters,
+                    "required": list(self.parameters.keys()),
+                },
+            },
+        }
+
+    def to_prompt_desc(self) -> str:
+        params = ", ".join(
+            f"{k}: {v.get('description', '')}" for k, v in self.parameters.items()
+        )
+        return f"- {self.name}({params}): {self.description}"
+
+
+# ── Tool implementations ──────────────────────────────────
+
+
+def _tool_search_stock(keyword: str) -> str:
+    results = search_stock(keyword)
+    if not results:
+        return f"未找到与「{keyword}」匹配的股票。"
+    lines = []
+    for r in results:
+        lines.append(f"{r['code']} — {r['name']}")
+    return "找到以下股票：\n" + "\n".join(lines)
+
+
+def _tool_get_stock_info(code: str) -> str:
+    q = get_realtime_quote(code)
+    if q is None:
+        return f"未查询到股票 {code} 的实时数据。请确认代码是否正确（如 600519）。"
+    d = q.to_dict()
+    lines = [f"{k}: {v}" for k, v in d.items()]
+    return "\n".join(lines)
+
+
+def _tool_get_stock_history(code: str, days: str = "90") -> str:
+    try:
+        n_days = int(days)
+    except ValueError:
+        n_days = 90
+    n_days = min(n_days, 365)
+
+    q = get_realtime_quote(code)
+    name = q.name if q else code
+    bars = get_daily_kline(code, days=n_days)
+    if not bars:
+        return f"未获取到 {name}({code}) 的历史K线数据。"
+
+    df = kline_to_dataframe(bars)
+    recent5 = df.tail(5)
+    summary_parts = [f"{name}({code}) 近{n_days}日历史数据概览：\n"]
+    summary_parts.append(f"区间: {str(df['date'].iloc[0])[:10]} ~ {str(df['date'].iloc[-1])[:10]}")
+    summary_parts.append(f"数据行数: {len(df)}")
+
+    close = df["close"]
+    summary_parts.append(f"区间最高收盘: {close.max():.2f}")
+    summary_parts.append(f"区间最低收盘: {close.min():.2f}")
+    summary_parts.append(f"最近收盘: {close.iloc[-1]:.2f}")
+    if len(close) >= 20:
+        summary_parts.append(f"近5日涨跌幅: {(close.iloc[-1] / close.iloc[-5] - 1) * 100:+.2f}%")
+        summary_parts.append(f"近20日涨跌幅: {(close.iloc[-1] / close.iloc[-20] - 1) * 100:+.2f}%")
+
+    summary_parts.append("\n最近5日明细：")
+    for _, row in recent5.iterrows():
+        d = str(row["date"])[:10]
+        summary_parts.append(
+            f"  {d} O:{row['open']:.2f} H:{row['high']:.2f} "
+            f"L:{row['low']:.2f} C:{row['close']:.2f} V:{row['volume']}"
+        )
+    return "\n".join(summary_parts)
+
+
+def _get_model_service():
+    from core.model_service import StockCNNService
+    from pathlib import Path
+
+    BASE = Path(__file__).resolve().parent.parent
+    svc = StockCNNService(model_dir=BASE / "models")
+    if svc.has_trained_model():
+        svc.load()
+    return svc
+
+
+def _tool_predict_stock(code: str) -> str:
+    q = get_realtime_quote(code)
+    name = q.name if q else code
+
+    bars = get_daily_kline(code, days=120)
+    if len(bars) < 60:
+        return f"{name}({code}) 历史数据不足（需要至少 60 个交易日），无法预测。当前仅获取到 {len(bars)} 条。"
+
+    df = kline_to_dataframe(bars)
+
+    # Map K-line to format expected by model service (open, high, low, close, vol)
+    df_model = df.rename(columns={"date": "timestamp"})
+    df_model["label"] = 0  # dummy
+    df_model["vol"] = df_model["volume"]
+
+    try:
+        svc = _get_model_service()
+        result = svc.predict(df_model)
+    except Exception:
+        # Fallback: return a simple momentum-based indication
+        close = df["close"]
+        latest = close.iloc[-1]
+        ma5 = close.iloc[-5:].mean()
+        ma20 = close.iloc[-20:].mean() if len(close) >= 20 else close.mean()
+        trend = "涨" if ma5 > ma20 else "跌"
+        return (
+            f"{name}({code}) 趋势分析（简易版，模型暂不可用）：\n"
+            f"最近收盘: {latest:.2f}\n"
+            f"5日均价: {ma5:.2f}\n"
+            f"20日均价: {ma20:.2f}\n"
+            f"趋势判断: {trend}（均线交叉信号）\n"
+            f"注意：此为简易指标，不构成投资建议。"
+        )
+
+    return (
+        f"{name}({code}) CNN 模型预测结果：\n"
+        f"预测方向: {result['label']}\n"
+        f"置信度: {result['confidence']:.2%}\n"
+        f"上涨概率: {result['prob_up']:.2%}\n"
+        f"下跌概率: {result['prob_down']:.2%}\n"
+        f"最近收盘价: {result['latest_close']:.2f}\n"
+        f"近5期平均涨跌幅: {result['avg_return_5']:.4f}%\n"
+        f"近20期平均涨跌幅: {result['avg_return_20']:.4f}%\n"
+        f"\n⚠️ 以上结果仅基于历史序列模式，不构成投资建议。"
+    )
+
+
+def _tool_compare_stocks(codes: str) -> str:
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        return "请提供要对比的股票代码，用逗号分隔。"
+    if len(code_list) > 5:
+        return "最多支持5只股票对比。"
+
+    quotes = get_batch_quotes(code_list)
+    if not quotes:
+        return "未能获取任何股票数据。"
+
+    lines = ["股票对比：\n"]
+    lines.append(f"{'名称':<10} {'代码':<8} {'最新价':>8} {'涨跌幅':>8} {'市盈率':>8}")
+    lines.append("-" * 50)
+    for q in quotes:
+        pe_str = f"{q.pe:.1f}" if q.pe > 0 else "亏损"
+        lines.append(
+            f"{q.name:<10} {q.code:<8} {q.price:>8.2f} {q.change_pct:>+7.2f}% {pe_str:>8}"
+        )
+    return "\n".join(lines)
+
+
+# ── Tool registry ─────────────────────────────────────────
+
+ALL_TOOLS: List[ToolDef] = [
+    ToolDef(
+        name="search_stock",
+        description="根据关键词搜索股票代码和名称。当用户提到股票名称但不确定代码时使用。",
+        parameters={"keyword": {"type": "string", "description": "股票名称或代码关键词"}},
+        handler=_tool_search_stock,
+    ),
+    ToolDef(
+        name="get_stock_info",
+        description="获取股票实时行情数据：最新价、涨跌幅、成交量、市盈率、市净率、总市值等。需要6位数字股票代码。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码，如600519"}},
+        handler=_tool_get_stock_info,
+    ),
+    ToolDef(
+        name="get_stock_history",
+        description="获取股票历史日K线数据，含开高低收成交量。用于了解近期走势。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码，如600519"},
+            "days": {"type": "string", "description": "获取天数，默认90，最大365"},
+        },
+        handler=_tool_get_stock_history,
+    ),
+    ToolDef(
+        name="predict_stock",
+        description="基于CNN模型预测股票下一时段涨跌方向。需要足够历史数据（60个交易日以上）。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码，如600519"}},
+        handler=_tool_predict_stock,
+    ),
+    ToolDef(
+        name="compare_stocks",
+        description="对比多只股票的实时行情（最多5只）。",
+        parameters={"codes": {"type": "string", "description": "股票代码列表，逗号分隔，如600519,000001"}},
+        handler=_tool_compare_stocks,
+    ),
+]
+
+TOOL_MAP: Dict[str, ToolDef] = {t.name: t for t in ALL_TOOLS}
+
+
+def run_tool(name: str, args: Dict[str, Any]) -> str:
+    tool = TOOL_MAP.get(name)
+    if tool is None:
+        return f"未知工具: {name}"
+    try:
+        return tool.handler(**args)
+    except Exception as e:
+        return f"工具 {name} 执行出错: {e}"
+
+
+def get_tools_prompt() -> str:
+    lines = ["可用工具："]
+    for t in ALL_TOOLS:
+        lines.append(t.to_prompt_desc())
+    return "\n".join(lines)

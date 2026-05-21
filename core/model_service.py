@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import warnings
 from pathlib import Path
 from typing import Dict, List
 
@@ -8,6 +10,8 @@ import joblib
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
+
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 try:
     from tensorflow import keras

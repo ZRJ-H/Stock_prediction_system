@@ -4,3 +4,5 @@ numpy
 scikit-learn
 tensorflow
 joblib
+akshare
+requests

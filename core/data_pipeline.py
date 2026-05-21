@@ -17,8 +17,8 @@ def validate_dataframe(df: pd.DataFrame, required_columns: List[str] | None = No
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise ValueError(f"CSV 缺少必要列: {missing}")
-    if len(df) < 100:
-        raise ValueError("CSV 数据量过少，至少需要 100 行。")
+    if len(df) < 60:
+        raise ValueError(f"CSV 数据量过少，至少需要 60 行，当前仅 {len(df)} 行。")
 
 
 @dataclass

@@ -4,7 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Dict
+from typing import Any, Callable, Dict, List, Optional
 
 
 def build_prompt(result: Dict[str, float | str]) -> str:
@@ -33,21 +33,87 @@ class LLMExplainer:
         momentum = float(result["avg_return_5"])
         tone = "短线动能偏强" if momentum >= 0 else "短线动能偏弱"
         return (
-            f"预测解释：模型判断下一时段更可能“{direction}”，置信度约 {confidence:.1f}%，{tone}。\n"
+            f"预测解释：模型判断下一时段更可能【{direction}】，置信度约 {confidence:.1f}%，{tone}。\n"
             "风险提示：该结果仅反映历史序列模式，不构成投资建议，需结合市场消息与仓位管理。"
         )
 
     def explain(self, result: Dict[str, float | str]) -> str:
         if not self.api_key:
             return self._fallback_text(result)
+        messages = [
+            {"role": "system", "content": "你是专业但保守的金融分析助手。"},
+            {"role": "user", "content": build_prompt(result)},
+        ]
+        text = self._call_api(messages, temperature=0.4)
+        if text is None:
+            return self._fallback_text(result)
+        return text.strip()
 
+    def chat(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[dict]] = None,
+        temperature: float = 0.4,
+    ) -> Optional[Dict[str, Any]]:
+        """Call the LLM with optional tool definitions.
+
+        Returns a dict with either:
+          - {"role": "assistant", "content": "..."}
+          - {"role": "assistant", "tool_calls": [{"name":..., "arguments":{...}}]}
+        Or None if the call fails.
+        """
+        if not self.api_key:
+            return None
+
+        payload: Dict[str, Any] = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        req = urllib.request.Request(
+            url=f"{self.base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            choice = body["choices"][0]
+            msg = choice["message"]
+            result: Dict[str, Any] = {"role": "assistant"}
+
+            if msg.get("tool_calls"):
+                tc = msg["tool_calls"][0]
+                func = tc.get("function", {})
+                result["tool_calls"] = [{
+                    "name": func.get("name", ""),
+                    "arguments": json.loads(func.get("arguments", "{}")),
+                }]
+            elif msg.get("content"):
+                result["content"] = msg["content"]
+            else:
+                result["content"] = ""
+            return result
+        except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError):
+            return None
+
+    def _call_api(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.4,
+    ) -> Optional[str]:
         payload = {
             "model": self.model_name,
-            "messages": [
-                {"role": "system", "content": "你是专业但保守的金融分析助手。"},
-                {"role": "user", "content": build_prompt(result)},
-            ],
-            "temperature": 0.4,
+            "messages": messages,
+            "temperature": temperature,
         }
         req = urllib.request.Request(
             url=f"{self.base_url}/chat/completions",
@@ -61,6 +127,6 @@ class LLMExplainer:
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-            return body["choices"][0]["message"]["content"].strip()
+            return body["choices"][0]["message"]["content"]
         except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError):
-            return self._fallback_text(result)
+            return None
