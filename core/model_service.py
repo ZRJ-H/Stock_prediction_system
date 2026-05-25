@@ -1,3 +1,22 @@
+"""
+模型训练与推理服务（Model Service）
+===================================
+封装股票涨跌预测模型的完整生命周期：
+
+训练后端（自动选择）：
+  - TensorFlow CNN：一维卷积网络，序列特征提取能力强
+  - sklearn MLP（fallback）：TF 不可用时自动降级为多层感知机
+
+模型架构（CNN）：
+  Input(60, N_features) → Conv1D(64, k=5) → MaxPool1D(2)
+  → Conv1D(32, k=3) → GlobalAvgPool1D → Dense(32) → Dropout(0.2) → Dense(2, softmax)
+
+持久化：
+  - stock_cnn.keras / stock_mlp.joblib ：模型权重
+  - scaler.json                        ：归一化参数
+  - meta.json                          ：窗口大小、特征列、后端类型
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,8 +30,10 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 
+# 抑制 sklearn 版本兼容性警告
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
+# 运行时检测 TensorFlow 是否可用
 try:
     from tensorflow import keras
 
@@ -25,12 +46,32 @@ from core.data_pipeline import MinMaxFeatureScaler, prepare_latest_window, prepa
 
 
 class StockCNNService:
+    """股票预测模型服务。
+
+    职责：
+      - train():   从 DataFrame 训练模型并持久化
+      - predict(): 加载模型并预测最新窗口的涨跌方向
+      - load():    从磁盘加载已训练的模型
+      - has_trained_model(): 检查是否有可用的模型文件
+
+    支持双后端：
+      - TensorFlow CNN（首选，需 pip install tensorflow）
+      - sklearn MLP（自动降级，零额外依赖）
+    """
+
     def __init__(
         self,
         model_dir: str | Path,
         feature_columns: List[str] | None = None,
         window_size: int = 60,
     ) -> None:
+        """初始化模型服务。
+
+        Args:
+            model_dir:       模型文件存放目录
+            feature_columns: 使用的特征列名（默认 OHLCV）
+            window_size:     滑动窗口大小（默认 60 个交易日）
+        """
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.model_path = self.model_dir / "stock_cnn.keras"
@@ -40,10 +81,19 @@ class StockCNNService:
 
         self.feature_columns = feature_columns or ["open", "high", "low", "close", "vol"]
         self.window_size = window_size
-        self.model = None
+        self.model = None        # 训练/加载后的模型实例
         self.scaler: MinMaxFeatureScaler | None = None
 
     def _build_model(self):
+        """构建 CNN 模型（TensorFlow 后端）。
+
+        架构设计：
+          - Conv1D × 2：提取局部时序特征
+          - MaxPool1D：降采样，增强鲁棒性
+          - GlobalAvgPool1D：替代 Flatten，参数更少
+          - Dropout(0.2)：防过拟合
+          - Dense(2, softmax)：二分类（涨 / 跌）
+        """
         if not HAS_TF:
             raise RuntimeError("TensorFlow 不可用，无法构建 CNN。")
         model = keras.Sequential(
@@ -66,6 +116,11 @@ class StockCNNService:
         return model
 
     def has_trained_model(self) -> bool:
+        """检查是否存在可用的已训练模型。
+
+        Returns:
+            True 当 CNN 模型文件或 MLP 降级模型存在时
+        """
         has_dl = self.model_path.exists() and self.scaler_path.exists() and self.meta_path.exists()
         has_fallback = (
             self.fallback_model_path.exists() and self.scaler_path.exists() and self.meta_path.exists()
@@ -73,6 +128,13 @@ class StockCNNService:
         return has_dl or has_fallback
 
     def load(self) -> None:
+        """从磁盘加载已训练的模型和归一化参数。
+
+        加载优先级：TensorFlow CNN > sklearn MLP（降级）
+
+        Raises:
+            FileNotFoundError: 无模型文件或缺少可加载后端
+        """
         if not self.has_trained_model():
             raise FileNotFoundError("未找到已训练模型。")
         if self.model_path.exists() and HAS_TF:
@@ -81,12 +143,26 @@ class StockCNNService:
             self.model = joblib.load(self.fallback_model_path)
         else:
             raise FileNotFoundError("模型文件存在，但当前环境缺少可加载后端。")
+        # 恢复归一化器和元数据
         self.scaler = MinMaxFeatureScaler.from_file(self.scaler_path)
         meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         self.window_size = int(meta["window_size"])
         self.feature_columns = list(meta["feature_columns"])
 
     def train(self, df: pd.DataFrame, epochs: int = 12, batch_size: int = 32) -> Dict[str, float]:
+        """训练模型并持久化到磁盘。
+
+        流程：数据预处理 → 训练/验证拆分 → 训练 → 保存模型/归一化器/元数据
+
+        Args:
+            df:         包含 OHLCV 和 label 列的 DataFrame
+            epochs:     训练轮数（仅 CNN 模式使用）
+            batch_size: 批次大小（仅 CNN 模式使用）
+
+        Returns:
+            {"test_loss": float, "test_accuracy": float}
+        """
+        # 1. 数据预处理：归一化 + 窗口化
         x, y, scaler = prepare_training_data(
             df=df,
             feature_columns=self.feature_columns,
@@ -96,6 +172,7 @@ class StockCNNService:
             x, y, test_size=0.2, random_state=42, stratify=y
         )
 
+        # 2. 根据可用后段选择模型训练
         if HAS_TF:
             model = self._build_model()
             model.fit(
@@ -110,6 +187,7 @@ class StockCNNService:
             model.save(self.model_path)
             backend = "tensorflow_cnn"
         else:
+            # MLP 降级：将窗口展平为 1D 向量
             x_train_flat = x_train.reshape((x_train.shape[0], -1))
             x_test_flat = x_test.reshape((x_test.shape[0], -1))
             model = MLPClassifier(
@@ -125,6 +203,7 @@ class StockCNNService:
             joblib.dump(model, self.fallback_model_path)
             backend = "sklearn_mlp_fallback"
 
+        # 3. 持久化归一化器和元数据
         scaler.to_file(self.scaler_path)
         self.meta_path.write_text(
             json.dumps(
@@ -144,21 +223,41 @@ class StockCNNService:
         return {"test_loss": float(loss), "test_accuracy": float(accuracy)}
 
     def ensure_ready(self) -> None:
+        """确保模型已加载（懒加载：如未加载则自动 load）。"""
         if self.model is not None and self.scaler is not None:
             return
         self.load()
 
     def predict(self, df: pd.DataFrame) -> Dict[str, float | str]:
+        """对最新窗口做涨跌预测。
+
+        Args:
+            df: 包含 OHLCV 列的 DataFrame（至少 window_size 行）
+
+        Returns:
+            {
+                "label":         "涨" | "跌",
+                "confidence":    预测置信度（0~1），
+                "prob_up":       上涨概率，
+                "prob_down":     下跌概率，
+                "latest_close":  最新收盘价，
+                "avg_return_5":  近 5 期平均涨跌幅(%),
+                "avg_return_20": 近 20 期平均涨跌幅(%),
+            }
+        """
         self.ensure_ready()
         if self.model is None or self.scaler is None:
             raise RuntimeError("模型未就绪。")
 
+        # 准备最新窗口 + 上下文统计
         x, context = prepare_latest_window(
             df=df,
             feature_columns=self.feature_columns,
             scaler=self.scaler,
             window_size=self.window_size,
         )
+
+        # 推理：区分 TF（predict）和 sklearn（predict_proba）
         if HAS_TF and hasattr(self.model, "predict") and self.model_path.exists():
             prob = self.model.predict(x, verbose=0)[0]
             prob_down = float(prob[0])

@@ -1,3 +1,17 @@
+"""
+行情数据层（Market Data Layer）
+===============================
+封装 A 股行情数据获取逻辑，全部基于腾讯免费 API（无需注册/密钥）：
+  - 实时行情：qt.gtimg.cn → StockQuote（最新价、涨跌幅、PE/PB 等）
+  - 日K线：   web.ifzq.gtimg.cn → KlineBar 列表（开高低收量）
+  - 股票搜索：内置 A 股列表 + AKShare（可选）
+
+设计原则：
+  - 零外部认证依赖（腾讯 API 无需 API Key）
+  - AKShare 仅在设置 USE_AKSHARE=1 时启用（网络不好时可能超时）
+  - 内置 fallback 股票列表（38 只大市值/高流动性 A 股）
+"""
+
 from __future__ import annotations
 
 import re
@@ -10,9 +24,30 @@ import requests
 
 @dataclass
 class StockQuote:
+    """实时行情快照。
+
+    Attributes:
+        code:         6 位股票代码
+        name:         股票名称
+        market:       市场标识 "SH"（沪市）| "SZ"（深市）
+        price:        最新成交价
+        open:         今日开盘价
+        high:         今日最高价
+        low:          今日最低价
+        pre_close:    昨日收盘价
+        change_pct:   涨跌幅（%）
+        change_amount: 涨跌额
+        volume:       成交量（手）
+        amount:       成交额
+        turnover:     换手率（%）
+        pe:           市盈率（TTM）
+        pb:           市净率
+        total_mv:     总市值（亿）
+        time:         数据时间
+    """
     code: str
     name: str
-    market: str  # "SH" | "SZ"
+    market: str
     price: float
     open: float
     high: float
@@ -29,6 +64,7 @@ class StockQuote:
     time: str
 
     def to_dict(self) -> dict:
+        """转为中文键名字典（用于 Chat UI 展示）。"""
         return {
             "代码": self.code,
             "名称": self.name,
@@ -51,14 +87,16 @@ class StockQuote:
 
 @dataclass
 class KlineBar:
-    date: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
+    """单根日K线数据。"""
+    date: str       # 日期（yyyy-MM-dd）
+    open: float     # 开盘价
+    high: float     # 最高价
+    low: float      # 最低价
+    close: float    # 收盘价
+    volume: int     # 成交量（手）
 
     def to_dict(self) -> dict:
+        """转为英文键名字典（用于 DataFrame 构建）。"""
         return {
             "date": self.date,
             "open": self.open,
@@ -69,8 +107,11 @@ class KlineBar:
         }
 
 
-# ── Tencent real-time quote ──────────────────────────────
+# ═════════════════════════════════════════════════════════════
+# 腾讯实时行情 API
+# ═════════════════════════════════════════════════════════════
 
+# 腾讯行情接口返回字段名列表（按 ~ 分隔后的顺序）
 _TENCENT_QUOTE_FIELDS = [
     "market", "name", "code", "price", "pre_close", "open", "volume",
     "_1", "_2", "_3", "_4", "_5", "_6", "_7", "_8", "_9", "_10",
@@ -85,24 +126,43 @@ _TENCENT_QUOTE_FIELDS = [
 
 
 def _detect_market(code: str) -> str:
+    """根据股票代码前缀判断所属市场。
+    规则：6/9 开头 → 沪市（SH），0/3/2 开头 → 深市（SZ）。
+    """
     code = str(code).zfill(6)
     if code.startswith(("6", "9")):
         return "SH"
     if code.startswith(("0", "3", "2")):
         return "SZ"
-    return "SZ"
+    return "SZ"  # 默认深市
 
 
 def _code_to_tencent(code: str) -> str:
+    """将 6 位数字代码转换为腾讯行情 API 格式（sh/sz + 代码）。"""
     m = _detect_market(code)
     return f"{'sh' if m == 'SH' else 'sz'}{code}"
 
 
+def _f(d: dict, key: str) -> float:
+    """安全地从字典取值并转为 float，转换失败返回 0.0。"""
+    try:
+        return float(d.get(key, 0) or 0)
+    except ValueError:
+        return 0.0
+
+
 def _parse_tencent_quote(raw: str) -> StockQuote:
+    """解析腾讯实时行情 API 的原始响应字符串 → StockQuote 对象。
+
+    腾讯返回格式：var hq_str_xxx="字段1~字段2~...";
+    解析步骤：去壳 → 按 ~ 分割 → 按字段名映射 → 类型转换。
+    """
     raw = raw.strip()
+    # 去掉 "var hq_str_xxx=" 前缀和末尾分号
     if "=" in raw:
         raw = raw.split("=", 1)[1].strip('";\n ')
     parts = raw.split("~")
+    # 将位置索引映射到字段名
     vals: Dict[str, str] = {}
     for i, fname in enumerate(_TENCENT_QUOTE_FIELDS):
         vals[fname] = parts[i] if i < len(parts) else ""
@@ -127,20 +187,20 @@ def _parse_tencent_quote(raw: str) -> StockQuote:
     )
 
 
-def _f(d: dict, key: str) -> float:
-    try:
-        return float(d.get(key, 0) or 0)
-    except ValueError:
-        return 0.0
-
-
 def get_realtime_quote(code: str) -> Optional[StockQuote]:
-    """Get real-time quote from Tencent API."""
+    """从腾讯 API 获取单只股票实时行情。
+
+    Args:
+        code: 6 位股票代码
+
+    Returns:
+        StockQuote 对象，获取失败或代码不存在时返回 None
+    """
     tc = _code_to_tencent(code)
     url = f"https://qt.gtimg.cn/q={tc}"
     try:
         r = _http().get(url, timeout=8)
-        r.encoding = "gbk"
+        r.encoding = "gbk"  # 腾讯接口返回 GBK 编码
         if not r.text or "none" in r.text.lower():
             return None
         return _parse_tencent_quote(r.text)
@@ -148,9 +208,17 @@ def get_realtime_quote(code: str) -> Optional[StockQuote]:
         return None
 
 
-# ── Tencent daily K-line ─────────────────────────────────
+# ═════════════════════════════════════════════════════════════
+# 腾讯日K线 API
+# ═════════════════════════════════════════════════════════════
 
 def _parse_kline(raw) -> List[KlineBar]:
+    """解析腾讯日K线原始数据 → KlineBar 列表。
+
+    支持两种格式：
+      - JSON 数组格式：[[date, open, close, high, low, vol], ...]
+      - 字符串格式（KLineday1 接口）：每行 "date open close high low vol"
+    """
     bars: List[KlineBar] = []
     if isinstance(raw, list):
         for row in raw:
@@ -182,9 +250,18 @@ def _parse_kline(raw) -> List[KlineBar]:
 
 
 def get_daily_kline(code: str, days: int = 90) -> List[KlineBar]:
-    """Get daily K-line from Tencent API."""
+    """从腾讯 API 获取股票日K线数据（前复权）。
+
+    Args:
+        code: 6 位股票代码
+        days: 期望获取的天数（默认 90，实际会多取几根以防止边界缺失）
+
+    Returns:
+        KlineBar 列表（按日期升序），获取失败返回空列表
+    """
     m = _detect_market(code)
     tc = f"{'sh' if m == 'SH' else 'sz'}{code}"
+    # 多取 5 根以防边界缺失（前复权计算可能影响早期数据）
     url = (
         f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
         f"?param={tc},day,,,{days + 5},qfq"
@@ -198,12 +275,14 @@ def get_daily_kline(code: str, days: int = 90) -> List[KlineBar]:
         else:
             raw = ""
         bars = _parse_kline(raw)
+        # 截取最近 days 根 K 线
         return bars[-days:] if len(bars) > days else bars
     except Exception:
         return []
 
 
 def kline_to_dataframe(bars: List[KlineBar]) -> pd.DataFrame:
+    """将 KlineBar 列表转换为 pandas DataFrame（按日期升序排列）。"""
     if not bars:
         return pd.DataFrame()
     df = pd.DataFrame([b.to_dict() for b in bars])
@@ -212,12 +291,18 @@ def kline_to_dataframe(bars: List[KlineBar]) -> pd.DataFrame:
     return df
 
 
-# ── Stock search (simple matching) ───────────────────────
+# ═════════════════════════════════════════════════════════════
+# 股票搜索
+# ═════════════════════════════════════════════════════════════
 
+# 股票列表缓存（模块级，避免重复加载/网络请求）
 _STOCK_LIST_CACHE: Optional[pd.DataFrame] = None
 
 
 def _http() -> requests.Session:
+    """创建预配置的 HTTP 会话。
+    关闭 trust_env 以绕过系统代理设置（避免某些环境下的网络问题）。
+    """
     s = requests.Session()
     s.trust_env = False
     s.headers.update({
@@ -227,10 +312,16 @@ def _http() -> requests.Session:
 
 
 def _load_stock_list() -> pd.DataFrame:
+    """加载 A 股股票列表（带缓存）。
+
+    优先级：AKShare（需 USE_AKSHARE=1）→ 内置 38 只核心股票列表。
+    结果缓存在模块全局变量中，避免重复网络请求。
+    """
     global _STOCK_LIST_CACHE
     if _STOCK_LIST_CACHE is not None:
         return _STOCK_LIST_CACHE
-    # Try AKShare first (if network is available), fall back to built-in list
+
+    # 尝试 AKShare（仅在用户主动启用时）
     try:
         import os as _os
         if _os.environ.get("USE_AKSHARE", "").lower() in ("1", "true", "yes"):
@@ -242,10 +333,8 @@ def _load_stock_list() -> pd.DataFrame:
             return df
     except Exception:
         pass
-    # Fallback: use a built-in list of major A-share stocks
-    except Exception:
-        pass
-    # Fallback: use a built-in list of major A-share stocks
+
+    # 内置 fallback：38 只大市值/高流动性 A 股（覆盖沪深主板、创业板、科创板）
     fallback = pd.DataFrame([
         ("000001", "平安银行"), ("000002", "万科A"), ("000063", "中兴通讯"),
         ("000333", "美的集团"), ("000651", "格力电器"), ("000725", "京东方A"),
@@ -266,22 +355,33 @@ def _load_stock_list() -> pd.DataFrame:
 
 
 def search_stock(keyword: str, limit: int = 10) -> List[Dict[str, str]]:
-    """Search stock by name or code."""
+    """根据关键词搜索股票（支持代码或名称匹配）。
+
+    Args:
+        keyword: 搜索关键词（代码或中文名称）
+        limit:   最多返回条数
+
+    Returns:
+        [{"code": "600519", "name": "贵州茅台"}, ...] 格式的列表
+    """
     df = _load_stock_list()
     keyword = keyword.strip()
-    # Exact code match
+
+    # 精确代码匹配优先
     code_match = df[df["code"].str.fullmatch(keyword)]
     if not code_match.empty:
+        # 代码匹配 + 名称模糊匹配（合并去重）
         name_match = df[df["name"].str.contains(keyword, case=False, na=False)]
         df = pd.concat([code_match, name_match]).drop_duplicates(subset=["code"])
     else:
+        # 模糊匹配：名称或代码包含关键词
         df = df[df["name"].str.contains(keyword, case=False, na=False) |
                 df["code"].str.contains(re.escape(keyword), na=False)]
     return df.head(limit)[["code", "name"]].to_dict(orient="records")
 
 
 def get_batch_quotes(codes: List[str]) -> List[StockQuote]:
-    """Batch fetch real-time quotes (via Tencent)."""
+    """批量获取多只股票的实时行情（逐个请求）。"""
     results: List[StockQuote] = []
     for code in codes:
         q = get_realtime_quote(code)

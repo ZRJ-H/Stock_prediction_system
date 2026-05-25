@@ -1,3 +1,24 @@
+"""
+工具系统（Tool System）
+=======================
+Agent 可调用工具的注册、分组与执行框架。
+
+核心概念：
+  - ToolDef:        工具定义（名称、描述、参数 schema、处理函数）
+  - TOOL_MAP:       工具名 → ToolDef 的全局索引
+  - TOOL_GROUPS:    工具分组（basic / technical / full / knowledge）
+  - get_tools_for_group(): 按分组获取可用工具（减少 LLM 选择负担）
+  - run_tool():     统一的工具执行入口
+
+工具列表（12个）：
+  基础查询：search_stock / get_stock_info / get_stock_history
+  分析工具：predict_stock / compare_stocks / calc_indicators
+  深度工具：get_financials / get_news / analyze_stock
+  知识工具：search_knowledge
+  推荐工具：screen_stocks / recommend_stock
+  偏好工具：update_preference
+"""
+
 from __future__ import annotations
 
 import json
@@ -18,12 +39,21 @@ from core.market_data import (
 
 @dataclass
 class ToolDef:
+    """工具定义实体。
+
+    Attributes:
+        name:        工具名称（LLM function calling 使用）
+        description: 工具功能描述（帮助 LLM 决定何时调用）
+        parameters:  参数 schema {参数名: {type, description}}
+        handler:     实际执行函数，接收 **kwargs → 返回 str
+    """
     name: str
     description: str
     parameters: Dict[str, Dict[str, str]]
     handler: Callable[..., str]
 
     def to_openai_tool(self) -> dict:
+        """转换为 OpenAI function calling 协议格式。"""
         return {
             "type": "function",
             "function": {
@@ -38,16 +68,20 @@ class ToolDef:
         }
 
     def to_prompt_desc(self) -> str:
+        """转为文本描述（供 System Prompt 或调试）。"""
         params = ", ".join(
             f"{k}: {v.get('description', '')}" for k, v in self.parameters.items()
         )
         return f"- {self.name}({params}): {self.description}"
 
 
-# ── Tool implementations ──────────────────────────────────
+# ═════════════════════════════════════════════════════════════
+# 工具实现函数
+# ═════════════════════════════════════════════════════════════
 
 
 def _tool_search_stock(keyword: str) -> str:
+    """搜索股票：根据关键词匹配代码或名称。"""
     results = search_stock(keyword)
     if not results:
         return f"未找到与「{keyword}」匹配的股票。"
@@ -58,6 +92,7 @@ def _tool_search_stock(keyword: str) -> str:
 
 
 def _tool_get_stock_info(code: str) -> str:
+    """获取股票实时行情。"""
     q = get_realtime_quote(code)
     if q is None:
         return f"未查询到股票 {code} 的实时数据。请确认代码是否正确（如 600519）。"
@@ -67,11 +102,15 @@ def _tool_get_stock_info(code: str) -> str:
 
 
 def _tool_get_stock_history(code: str, days: str = "90") -> str:
+    """获取股票历史日K线走势。
+
+    包含：区间概览（最高/最低/最近收盘、涨跌幅）+ 最近5日OHLCV明细。
+    """
     try:
         n_days = int(days)
     except ValueError:
         n_days = 90
-    n_days = min(n_days, 365)
+    n_days = min(n_days, 365)  # 上限 365 天
 
     q = get_realtime_quote(code)
     name = q.name if q else code
@@ -104,6 +143,7 @@ def _tool_get_stock_history(code: str, days: str = "90") -> str:
 
 
 def _get_model_service():
+    """懒加载模型服务实例（避免 import 时的循环依赖）。"""
     from core.model_service import StockCNNService
     from pathlib import Path
 
@@ -115,6 +155,10 @@ def _get_model_service():
 
 
 def _tool_predict_stock(code: str) -> str:
+    """基于 CNN 模型预测股票涨跌方向。
+
+    Fallback：模型未训练时使用简易均线交叉判断（MA5 vs MA20）。
+    """
     q = get_realtime_quote(code)
     name = q.name if q else code
 
@@ -124,16 +168,16 @@ def _tool_predict_stock(code: str) -> str:
 
     df = kline_to_dataframe(bars)
 
-    # Map K-line to format expected by model service (open, high, low, close, vol)
+    # 重命名列以匹配模型服务的预期格式
     df_model = df.rename(columns={"date": "timestamp"})
-    df_model["label"] = 0  # dummy
+    df_model["label"] = 0      # 预测时不需要标签，填占位值
     df_model["vol"] = df_model["volume"]
 
     try:
         svc = _get_model_service()
         result = svc.predict(df_model)
     except Exception:
-        # Fallback: return a simple momentum-based indication
+        # Fallback：简易均线交叉判断
         close = df["close"]
         latest = close.iloc[-1]
         ma5 = close.iloc[-5:].mean()
@@ -162,6 +206,7 @@ def _tool_predict_stock(code: str) -> str:
 
 
 def _tool_compare_stocks(codes: str) -> str:
+    """多只股票实时行情对比（最多 5 只）。"""
     code_list = [c.strip() for c in codes.split(",") if c.strip()]
     if not code_list:
         return "请提供要对比的股票代码，用逗号分隔。"
@@ -183,10 +228,13 @@ def _tool_compare_stocks(codes: str) -> str:
     return "\n".join(lines)
 
 
-# ── New tool implementations (Iter 2) ───────────────────────
+# ═════════════════════════════════════════════════════════════
+# 迭代 2 新增工具
+# ═════════════════════════════════════════════════════════════
 
 
 def _tool_calc_indicators(code: str, days: str = "90") -> str:
+    """计算股票技术指标（MA/MACD/RSI/BOLL/KDJ/量比/K线形态）。"""
     from core.indicators import calc_all_indicators
     try:
         n_days = int(days)
@@ -197,18 +245,21 @@ def _tool_calc_indicators(code: str, days: str = "90") -> str:
 
 
 def _tool_get_financials(code: str) -> str:
+    """获取股票核心财务指标（AKShare/同花顺）。"""
     from core.fundamentals import fetch_financials
     report = fetch_financials(code)
     return report.format()
 
 
 def _tool_get_news(code: str, keyword: str = "") -> str:
+    """获取股票近期新闻舆情。"""
     from core.news import fetch_news
     bundle = fetch_news(code, keyword=keyword)
     return bundle.format()
 
 
 def _tool_search_knowledge(query: str) -> str:
+    """从 RAG 知识库检索投资相关知识。"""
     from core.rag_service import RAGService
     rag = RAGService()
     rag.initialize()
@@ -216,6 +267,7 @@ def _tool_search_knowledge(query: str) -> str:
 
 
 def _tool_analyze_stock(code: str) -> str:
+    """综合分析一只股票（实时行情 + 技术指标 + 模型预测，三合一）。"""
     info = _tool_get_stock_info(code)
     indicators = _tool_calc_indicators(code, days="90")
     predict = _tool_predict_stock(code)
@@ -229,23 +281,29 @@ def _tool_analyze_stock(code: str) -> str:
 
 
 def _tool_screen_stocks(strategy: str = "综合评分") -> str:
+    """按策略筛选股票（选股引擎）。"""
     from core.screener import screen_stocks
     return screen_stocks(strategy=strategy)
 
 
 def _tool_recommend_stock(style: str = "综合评分") -> str:
+    """根据投资风格推荐股票。"""
     from core.screener import recommend_stock
     return recommend_stock(style=style)
 
 
 def _tool_update_preference(key: str, value: str) -> str:
+    """更新用户偏好设置（关注列表/分析风格/风险偏好）。"""
     from core.memory import update_preference
     return update_preference("default", key, value)
 
 
-# ── Tool registry ─────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════
+# 工具注册表
+# ═════════════════════════════════════════════════════════════
 
 ALL_TOOLS: List[ToolDef] = [
+    # ── 基础查询 ──
     ToolDef(
         name="search_stock",
         description="根据关键词搜索股票代码和名称。当用户提到股票名称但不确定代码时使用。",
@@ -267,6 +325,7 @@ ALL_TOOLS: List[ToolDef] = [
         },
         handler=_tool_get_stock_history,
     ),
+    # ── 分析工具 ──
     ToolDef(
         name="predict_stock",
         description="基于CNN模型预测股票下一时段涨跌方向。需要足够历史数据（60个交易日以上）。",
@@ -288,6 +347,7 @@ ALL_TOOLS: List[ToolDef] = [
         },
         handler=_tool_calc_indicators,
     ),
+    # ── 深度分析 ──
     ToolDef(
         name="get_financials",
         description="获取股票核心财务指标：营业总收入、净利润、ROE、毛利率、资产负债率、每股收益等。用于基本面分析。",
@@ -315,6 +375,7 @@ ALL_TOOLS: List[ToolDef] = [
         parameters={"code": {"type": "string", "description": "6位数字股票代码"}},
         handler=_tool_analyze_stock,
     ),
+    # ── 推荐工具 ──
     ToolDef(
         name="screen_stocks",
         description="按策略筛选股票并排名。支持策略：超卖反弹、趋势强势、低估值、高股息、综合评分。返回Top5候选及推荐理由。",
@@ -327,6 +388,7 @@ ALL_TOOLS: List[ToolDef] = [
         parameters={"style": {"type": "string", "description": "投资风格：短线/趋势/价值/稳健，默认综合"}},
         handler=_tool_recommend_stock,
     ),
+    # ── 偏好工具 ──
     ToolDef(
         name="update_preference",
         description="更新用户偏好设置，如关注股票列表、分析风格偏好、风险承受能力。",
@@ -338,13 +400,20 @@ ALL_TOOLS: List[ToolDef] = [
     ),
 ]
 
+# 工具名 → ToolDef 的快速索引
 TOOL_MAP: Dict[str, ToolDef] = {t.name: t for t in ALL_TOOLS}
 
-# ── Tool groups (reduce LLM selection burden) ────────────
+# ═════════════════════════════════════════════════════════════
+# 工具分组（减少 LLM 的 function calling 选择负担）
+# ═════════════════════════════════════════════════════════════
 
+# 基础工具：搜索 + 行情 + K线
 _BASIC_TOOLS = {"search_stock", "get_stock_info", "get_stock_history"}
+# 技术工具：基础 + 指标 + 预测
 _TECHNICAL_TOOLS = _BASIC_TOOLS | {"calc_indicators", "predict_stock"}
+# 全量工具：技术 + 财务 + 新闻 + 对比 + 综合分析 + 选股
 _FULL_TOOLS = _TECHNICAL_TOOLS | {"get_financials", "get_news", "compare_stocks", "analyze_stock", "screen_stocks", "recommend_stock"}
+# 知识工具：检索 + 偏好
 _KNOWLEDGE_TOOLS = {"search_knowledge", "update_preference"}
 
 TOOL_GROUPS: Dict[str, set] = {
@@ -356,11 +425,21 @@ TOOL_GROUPS: Dict[str, set] = {
 
 
 def get_tools_for_group(group: str) -> List[ToolDef]:
+    """按分组名获取可用的工具定义列表。"""
     names = TOOL_GROUPS.get(group, _FULL_TOOLS | _KNOWLEDGE_TOOLS)
     return [TOOL_MAP[n] for n in names if n in TOOL_MAP]
 
 
 def run_tool(name: str, args: Dict[str, Any]) -> str:
+    """统一的工具执行入口。
+
+    Args:
+        name: 工具名称
+        args: 参数字典（已从 LLM function calling 响应中解析）
+
+    Returns:
+        工具执行结果字符串（出错时返回错误描述）
+    """
     tool = TOOL_MAP.get(name)
     if tool is None:
         return f"未知工具: {name}"
@@ -371,6 +450,7 @@ def run_tool(name: str, args: Dict[str, Any]) -> str:
 
 
 def get_tools_prompt() -> str:
+    """生成所有工具的文本描述（用于 System Prompt 或调试）。"""
     lines = ["可用工具："]
     for t in ALL_TOOLS:
         lines.append(t.to_prompt_desc())

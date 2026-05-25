@@ -1,3 +1,28 @@
+"""
+股票分析对话 Agent（Stock Agent）
+==================================
+系统的核心调度层，负责理解用户意图并协调工具执行。
+
+双模式运行：
+  1. LLM 模式（OPENAI_API_KEY 已配置）：
+     使用大模型做意图理解 + function calling，支持多轮工具调用（最多8轮）
+  2. 规则模式（离线/降级）：
+     基于关键词匹配做意图分类 + 直接调度工具，无 LLM 依赖
+
+核心流程：
+  run(query, session_id) → 判断在线/离线 → 路由到对应模式 → 返回回复文本
+
+意图分类（11种）：
+  search / compare / history / predict / indicators / financials
+  / news / knowledge / recommend / preference / analyze / default
+
+工具分组策略：
+  根据查询关键词动态选择工具子集，减少 LLM function calling 的选择空间
+  - basic:     搜索 + 行情 + K线
+  - technical: basic + 指标 + 预测
+  - full:      全部工具
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,10 +30,12 @@ import re
 from typing import Any, Dict, List, Optional
 
 from core.llm_service import LLMExplainer
-from core.tools import TOOL_GROUPS, TOOL_MAP, ToolDef, get_tools_for_group, run_tool
+from core.tools import get_tools_for_group, run_tool
 
+# LLM 模式最大工具调用轮次（防止无限循环）
 MAX_ITERATIONS = 8
 
+# 基础 System Prompt（注入给 LLM 的行为指令）
 _BASE_SYSTEM_PROMPT = """你是一个专业的股票分析助手，可以帮用户查询A股行情、分析走势、预测涨跌、解读技术指标、检索投资知识。
 
 工作方式：
@@ -33,6 +60,14 @@ _BASE_SYSTEM_PROMPT = """你是一个专业的股票分析助手，可以帮用�
 
 
 def _build_system_prompt(session_id: str = "") -> str:
+    """构建完整的 System Prompt（基础指令 + 用户偏好提示）。
+
+    Args:
+        session_id: 会话 ID，用于加载该用户的偏好设置
+
+    Returns:
+        完整的 System Prompt 字符串
+    """
     prompt = _BASE_SYSTEM_PROMPT
     if session_id:
         from core.memory import load_preferences
@@ -44,33 +79,66 @@ def _build_system_prompt(session_id: str = "") -> str:
 
 
 class StockAgent:
+    """股票分析对话 Agent。
+
+    使用示例：
+        agent = StockAgent()
+        reply = agent.run("分析贵州茅台", session_id="abc123")
+    """
+
     def __init__(self) -> None:
         self.llm = LLMExplainer()
 
     def run(self, query: str, session_id: str = "") -> str:
+        """主入口：处理用户查询并返回回复。
+
+        路由策略：有 API key → LLM 模式，无 key → 规则模式。
+        """
         if self.llm.api_key:
             return self._run_llm(query, session_id)
         return self._run_rule(query, session_id)
 
     def _select_tool_group(self, query: str) -> str:
-        """Select tool group based on query intent to reduce LLM selection burden."""
+        """根据查询内容智能选择工具分组。
+
+        分组选择逻辑：
+          - 含知识/理论/策略相关词 → full（可能需要检索知识库）
+          - 含技术指标相关词       → technical
+          - 含综合/深度分析相关词  → full
+          - 默认                   → technical
+
+        目的：减少每个 LLM 请求携带的 function 定义数量，降低 token 消耗
+              同时提高工具选择的准确率（选项少 → 选错概率低）
+        """
         q = query.lower()
-        # Knowledge / theory questions
+        # 知识/理论类问题 → 全部工具
         if any(w in q for w in ["什么是", "什么叫", "如何", "怎么", "止损", "仓位", "金叉",
                                   "死叉", "macd", "rsi", "kdj", "boll", "投资策略",
                                   "基本面", "价值投资", "技术分析"]):
             return "full"
-        # Technical analysis
+        # 技术分析类 → 技术工具
         if any(w in q for w in ["指标", "金叉", "死叉", "macd", "rsi", "kdj", "boll",
                                   "布林", "均线", "形态", "成交量", "量能"]):
             return "technical"
-        # Comprehensive
+        # 综合/深度分析类 → 全部工具
         if any(w in q for w in ["综合", "全面", "详细", "财报", "新闻", "分析报告"]):
             return "full"
-        # Default: basic + technical (most common)
+        # 默认 → 技术工具（覆盖最常见查询场景）
         return "technical"
 
     def _run_llm(self, query: str, session_id: str = "") -> str:
+        """LLM 模式：使用大模型理解意图 + function calling 调用工具。
+
+        流程：
+          1. 构建 System Prompt（含用户偏好）
+          2. 选择工具分组，转换为 OpenAI tool 格式
+          3. 注入会话历史（如有）
+          4. 多轮迭代：
+             a. 调用 LLM → 得到 text 或 tool_call
+             b. 如果是 tool_call → 执行工具 → 将结果追加到消息中 → 继续
+             c. 如果是 text → 返回最终回复
+          5. 超时或异常 → 降级到规则模式
+        """
         system_prompt = _build_system_prompt(session_id)
         tool_group = self._select_tool_group(query)
         active_tools = get_tools_for_group(tool_group)
@@ -79,7 +147,7 @@ class StockAgent:
             {"role": "system", "content": system_prompt},
         ]
 
-        # Inject session history if available
+        # 注入会话历史（最近 10 轮对话）
         if session_id:
             from core.memory import get_history
             history_msgs = get_history(session_id)
@@ -92,13 +160,17 @@ class StockAgent:
         for i in range(MAX_ITERATIONS):
             resp = self.llm.chat(messages, tools=tools_openai)
             if resp is None:
+                # API 调用失败 → 降级到规则模式
                 return self._run_rule(query, session_id)
 
+            # 情况 A：LLM 请求调用工具
             if resp.get("tool_calls"):
                 tc = resp["tool_calls"][0]
                 tool_name = tc["name"]
                 tool_args = tc["arguments"]
+                # 执行工具并获取结果
                 result = run_tool(tool_name, tool_args)
+                # 将 assistant 的 tool_call 消息 + tool 结果追加到对话
                 messages.append({
                     "role": "assistant",
                     "content": None,
@@ -116,17 +188,19 @@ class StockAgent:
                     "tool_call_id": f"call_{i}",
                     "content": result,
                 })
-                continue
+                continue  # 继续下一轮
 
+            # 情况 B：LLM 返回最终文本回复
             content = resp.get("content", "")
             if content.strip():
-                # Save to session memory
+                # 保存到会话记忆
                 if session_id:
                     from core.memory import add_message
                     add_message(session_id, "user", query)
                     add_message(session_id, "assistant", content)
                 return content
 
+            # 情况 C：首轮无内容也没调工具 → 引导 LLM 更明确
             if i == 0:
                 messages.append({
                     "role": "user",
@@ -135,34 +209,67 @@ class StockAgent:
                 continue
             break
 
+        # 所有轮次都未得到有效回复 → 降级
         return self._run_rule(query, session_id)
 
     def _run_rule(self, query: str, session_id: str = "") -> str:
-        """Rule-based fallback when LLM is unavailable."""
+        """规则模式：基于关键词的意图分类 + 直接工具调度。
+
+        当 LLM 不可用（无 API key 或 API 调用失败）时使用此模式。
+        流程：
+          1. 提取 6 位代码和关键词
+          2. 分类意图（11 种）
+          3. 按意图分发到对应工具
+          4. 保存到会话记忆
+        """
         code = _extract_code(query)
         keyword = _extract_keyword(query)
         intent = _classify_intent(query)
 
-        # Save to session
+        # 保存用户消息到会话
         if session_id:
             from core.memory import add_message
             add_message(session_id, "user", query)
 
         reply = _dispatch(query, code, keyword, intent)
 
+        # 保存助手回复到会话
         if session_id and reply:
             from core.memory import add_message
             add_message(session_id, "assistant", reply)
         return reply
 
 
+# ═════════════════════════════════════════════════════════════
+# 意图分发器：根据意图类型路由到对应的工具处理函数
+# ═════════════════════════════════════════════════════════════
+
 def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: str) -> str:
+    """根据意图类型执行对应的工具并返回结果。
+
+    意图 → 工具映射：
+      search      → search_stock（股票搜索）
+      compare     → compare_stocks（多股对比）
+      history     → get_stock_history（历史K线）
+      predict     → predict_stock（涨跌预测）
+      indicators  → calc_indicators（技术指标）
+      financials  → get_financials（财报）
+      news        → get_news（新闻）
+      knowledge   → search_knowledge（知识检索）
+      recommend   → recommend_stock（选股推荐）
+      preference  → update_preference（偏好设置）
+      analyze     → analyze_stock（综合分析）
+      default     → get_stock_info + get_stock_history（默认行情+K线）
+    """
+
+    # ── 搜索股票 ──
     if intent == "search":
         if not keyword:
             return "请提供要搜索的股票名称或代码关键词。"
         from core.tools import _tool_search_stock
         return _tool_search_stock(keyword)
 
+    # ── 多股对比 ──
     if intent == "compare":
         codes = re.findall(r"\d{6}", query)
         if len(codes) < 2:
@@ -170,6 +277,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_compare_stocks
         return _tool_compare_stocks(",".join(codes))
 
+    # ── 历史走势 ──
     if intent == "history":
         if not code and keyword:
             code = _resolve_code(keyword)
@@ -182,6 +290,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
             days = days_match.group(1)
         return _tool_get_stock_history(code, days)
 
+    # ── 涨跌预测 ──
     if intent in ("predict", "forecast"):
         if not code and keyword:
             code = _resolve_code(keyword)
@@ -190,6 +299,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_predict_stock
         return _tool_predict_stock(code)
 
+    # ── 技术指标 ──
     if intent == "indicators":
         if not code and keyword:
             code = _resolve_code(keyword)
@@ -198,6 +308,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_calc_indicators
         return _tool_calc_indicators(code)
 
+    # ── 财报 ──
     if intent == "financials":
         if not code and keyword:
             code = _resolve_code(keyword)
@@ -206,9 +317,11 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_get_financials
         return _tool_get_financials(code)
 
+    # ── 新闻舆情 ──
     if intent == "news":
         if not code and keyword:
             code = _resolve_code(keyword)
+            # 一层解析不够 → 递归清洗后再尝试
             if not code:
                 kw2 = _extract_keyword(keyword)
                 if kw2 and kw2 != keyword:
@@ -216,13 +329,15 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         if code:
             from core.tools import _tool_get_news
             return _tool_get_news(code)
-        # Keyword-only search (no valid stock code resolved)
+        # 无有效代码 → 用纯关键词搜索新闻
         if keyword:
             from core.tools import _tool_get_news
             return _tool_get_news("", keyword=keyword)
         return "请提供要查询新闻的股票代码或名称，如「茅台有什么新闻」。"
 
+    # ── 知识检索 ──
     if intent == "knowledge":
+        # 清洗查询文本：去代码、去填充词 → 得到纯搜索意图
         clean_query = re.sub(r"\d{6}", "", query).strip()
         clean_query = _STRIP_FILLER.sub("", clean_query).strip()
         if not clean_query:
@@ -230,9 +345,11 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_search_knowledge
         return _tool_search_knowledge(clean_query)
 
+    # ── 选股推荐 ──
     if intent == "recommend":
         from core.tools import _tool_recommend_stock
         style = "综合评分"
+        # 从用户查询中检测投资风格偏好
         style_map = {
             "短线": "短线", "短期": "短线", "快": "短线",
             "趋势": "趋势", "动量": "趋势", "强势": "趋势",
@@ -245,6 +362,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
                 break
         return _tool_recommend_stock(style)
 
+    # ── 偏好设置 ──
     if intent == "preference":
         from core.memory import update_preference
         if not code and keyword:
@@ -253,6 +371,7 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
             return update_preference("default", "watchlist", code)
         return "请提供要关注的股票代码或名称，如「关注 600519」。"
 
+    # ── 综合分析 ──
     if intent == "analyze":
         if not code and keyword:
             code = _resolve_code(keyword)
@@ -261,22 +380,25 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_analyze_stock
         return _tool_analyze_stock(code)
 
-    # Default: show stock info
+    # ── 默认：显示行情 + 短期走势 ──
     if not code and keyword:
         code = _resolve_code(keyword)
     if code:
         from core.tools import _tool_get_stock_info
         info = _tool_get_stock_info(code)
+        # 如果用户只关心行情 → 不追加走势
         if keyword and keyword in ("行情", "价格", "信息"):
             return info
         from core.tools import _tool_get_stock_history
         history = _tool_get_stock_history(code, "30")
         return info + "\n\n" + history
 
+    # ── 只有关键词无代码 → 搜索匹配 ──
     if keyword:
         from core.tools import _tool_search_stock
         return _tool_search_stock(keyword)
 
+    # ── 什么都匹配不到 → 显示帮助 ──
     return (
         "【迭代2 新能力】\n\n"
         "--- 基础查询 ---\n"
@@ -296,15 +418,17 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# Helpers
-# ═══════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════
+# 文本解析辅助函数
+# ═════════════════════════════════════════════════════════════
 
 def _extract_code(text: str) -> Optional[str]:
+    """从文本中提取 6 位数字股票代码（正则匹配）。"""
     m = re.search(r"\b(\d{6})\b", text)
     return m.group(1) if m else None
 
 
+# 填充词/停用词正则：用于从查询中剥离无关词，提取核心关键词
 _STRIP_FILLER = re.compile(
     r"^(搜索|搜|查找|找|查询|查|看|看看|帮我|请|的|"
     r"预测|分析|评估|对比|比较|告诉|显示|展示|"
@@ -320,6 +444,16 @@ _STRIP_FILLER = re.compile(
 
 
 def _extract_keyword(text: str) -> Optional[str]:
+    """从查询文本中提取中文关键词（股票名称或概念）。
+
+    处理流程：
+      1. 去掉 6 位数字代码
+      2. 递归剥离填充词（最多 5 轮）
+      3. 匹配中文名（优先含行业后缀的完整名 → 至少 2 个汉字）
+
+    Returns:
+        提取到的关键词，无法提取时返回 None
+    """
     cleaned = re.sub(r"\d{6}", "", text).strip()
     for _ in range(5):
         prev = cleaned
@@ -328,16 +462,26 @@ def _extract_keyword(text: str) -> Optional[str]:
             break
     if not cleaned:
         return None
+    # 过滤纯描述性词（这些词不能作为股票名称）
     if cleaned in ("行情", "走势", "涨跌", "价格", "股价", "信息", "数据", "情况", "指标"):
         return None
-    m = re.search(r"[一-鿿]{2,}(?:银行|保险|证券|科技|股份|集团|电器|汽车|能源|医药|电子|通信|地产|食品|化工|电力|锂电|白酒|半导体)?", cleaned)
+    # 优先匹配含行业后缀的完整名称（如 "平安银行"）
+    m = re.search(
+        r"[一-鿿]{2,}(?:银行|保险|证券|科技|股份|集团|电器|汽车|能源|医药|电子|通信|地产|食品|化工|电力|锂电|白酒|半导体)?",
+        cleaned
+    )
     if m:
         return m.group(0)
+    # 回落：至少 2 个连续汉字
     m = re.search(r"[一-鿿]{2,}", cleaned)
     return m.group(0) if m else None
 
 
 def _resolve_code(keyword: str) -> Optional[str]:
+    """将中文关键词解析为 6 位股票代码。
+
+    仅在搜索结果唯一时返回（避免歧义）。
+    """
     from core.market_data import search_stock
     results = search_stock(keyword, limit=3)
     if len(results) == 1:
@@ -346,34 +490,54 @@ def _resolve_code(keyword: str) -> Optional[str]:
 
 
 def _classify_intent(query: str) -> str:
+    """基于关键词将用户查询分类为 11 种意图之一。
+
+    优先级设计原则：
+      - 具体词 > 通用词（如"金叉"优先于"分析"）
+      - 意图按匹配顺序判定（越具体的意图放越前面）
+      - 兜底：default → 显示行情+帮助
+    """
     q = query.lower()
+    # 搜索意图：找股票
     if any(w in q for w in ["搜索", "搜", "找", "查找", "叫什么", "代码"]):
         return "search"
+    # 对比意图
     if any(w in q for w in ["对比", "比较", "vs"]):
         return "compare"
+    # 知识意图：理论/策略/方法论
     if any(w in q for w in ["什么是", "什么叫", "如何", "怎么", "止损", "策略", "原则",
                               "仓位管理", "风险管理", "价值投资", "投资知识", "理论"]):
         return "knowledge"
+    # 技术指标意图
     if any(w in q for w in ["指标", "macd", "rsi", "kdj", "boll", "布林", "金叉",
                               "死叉", "均线", "形态", "技术分析", "技术面", "技术指标"]):
         return "indicators"
+    # 基本面/财报意图
     if any(w in q for w in ["财报", "财务", "基本面", "营收", "净利润", "roe", "估值"]):
         return "financials"
+    # 新闻意图
     if any(w in q for w in ["新闻", "公告", "消息", "舆情", "资讯", "有什么新闻",
                               "最新消息", "相关新闻"]):
         return "news"
+    # 综合分析意图
     if any(w in q for w in ["综合", "全面", "详细", "分析报告", "综合看看"]):
         return "analyze"
+    # 选股推荐意图
     if any(w in q for w in ["推荐", "荐股", "选股", "选一只", "推荐一只", "有什么好的",
                               "买什么", "哪只", "哪支", "挑选", "筛选", "低估", "便宜",
                               "值得买", "可以买", "潜力", "机会", "被低估"]):
         return "recommend"
+    # 偏好设置意图
     if any(w in q for w in ["关注", "添加关注", "加入自选", "收藏"]):
         return "preference"
+    # 历史走势意图
     if any(w in q for w in ["历史", "走势", "k线", "过去", "近期"]):
         return "history"
+    # 预测意图
     if any(w in q for w in ["预测", "涨跌", "明天", "未来", "forecast"]):
         return "predict"
+    # 行情查询意图
     if any(w in q for w in ["行情", "价格", "多少钱", "涨了", "跌了"]):
         return "info"
+    # 兜底
     return "default"
