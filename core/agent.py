@@ -12,9 +12,9 @@
 核心流程：
   run(query, session_id) → 判断在线/离线 → 路由到对应模式 → 返回回复文本
 
-意图分类（11种）：
+意图分类（13种）：
   search / compare / history / predict / indicators / financials
-  / news / knowledge / recommend / preference / analyze / default
+  / news / knowledge / recommend / risk / preference / analyze / default
 
 工具分组策略：
   根据查询关键词动态选择工具子集，减少 LLM function calling 的选择空间
@@ -105,6 +105,7 @@ class StockAgent:
           - 含知识/理论/策略相关词 → full（可能需要检索知识库）
           - 含技术指标相关词       → technical
           - 含综合/深度分析相关词  → full
+          - 含风险/仓位相关词      → full
           - 默认                   → technical
 
         目的：减少每个 LLM 请求携带的 function 定义数量，降低 token 消耗
@@ -121,7 +122,8 @@ class StockAgent:
                                   "布林", "均线", "形态", "成交量", "量能"]):
             return "technical"
         # 综合/深度分析类 → 全部工具
-        if any(w in q for w in ["综合", "全面", "详细", "财报", "新闻", "分析报告"]):
+        if any(w in q for w in ["综合", "全面", "详细", "财报", "新闻", "分析报告",
+                                  "风险", "仓位", "回撤", "波动"]):
             return "full"
         # 默认 → 技术工具（覆盖最常见查询场景）
         return "technical"
@@ -299,40 +301,47 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_predict_stock
         return _tool_predict_stock(code)
 
-    # ── 技术指标 ──
+    # ── 技术指标（迭代3：升级为 Skill 报告）──
     if intent == "indicators":
         if not code and keyword:
             code = _resolve_code(keyword)
         if not code:
             return "请提供要分析技术指标的6位股票代码，如 600519。"
-        from core.tools import _tool_calc_indicators
-        return _tool_calc_indicators(code)
+        from core.skills.technical import TechnicalSkill
+        return TechnicalSkill().execute(code).format()
 
-    # ── 财报 ──
+    # ── 财报（迭代3：升级为 Skill 报告）──
     if intent == "financials":
         if not code and keyword:
             code = _resolve_code(keyword)
         if not code:
             return "请提供要查询财报的6位股票代码，如 600519。"
-        from core.tools import _tool_get_financials
-        return _tool_get_financials(code)
+        from core.skills.fundamental import FundamentalSkill
+        return FundamentalSkill().execute(code).format()
 
-    # ── 新闻舆情 ──
+    # ── 风险评估（迭代3新增）──
+    if intent == "risk":
+        if not code and keyword:
+            code = _resolve_code(keyword)
+        if not code:
+            return "请提供要评估风险的6位股票代码，如 600519。"
+        from core.skills.risk import RiskSkill
+        return RiskSkill().execute(code).format()
+
+    # ── 新闻舆情（迭代3：升级为 Skill 报告）──
     if intent == "news":
         if not code and keyword:
             code = _resolve_code(keyword)
-            # 一层解析不够 → 递归清洗后再尝试
             if not code:
                 kw2 = _extract_keyword(keyword)
                 if kw2 and kw2 != keyword:
                     code = _resolve_code(kw2)
         if code:
-            from core.tools import _tool_get_news
-            return _tool_get_news(code)
-        # 无有效代码 → 用纯关键词搜索新闻
+            from core.skills.news import NewsSkill
+            return NewsSkill().execute(code).format()
         if keyword:
-            from core.tools import _tool_get_news
-            return _tool_get_news("", keyword=keyword)
+            from core.skills.news import NewsSkill
+            return NewsSkill().execute("", keyword=keyword).format()
         return "请提供要查询新闻的股票代码或名称，如「茅台有什么新闻」。"
 
     # ── 知识检索 ──
@@ -345,22 +354,22 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         from core.tools import _tool_search_knowledge
         return _tool_search_knowledge(clean_query)
 
-    # ── 选股推荐 ──
+    # ── 选股推荐（迭代3：使用 ScreeningSkill）──
     if intent == "recommend":
-        from core.tools import _tool_recommend_stock
+        from core.skills.screening import ScreeningSkill
         style = "综合评分"
-        # 从用户查询中检测投资风格偏好
         style_map = {
-            "短线": "短线", "短期": "短线", "快": "短线",
-            "趋势": "趋势", "动量": "趋势", "强势": "趋势",
-            "价值": "价值", "便宜": "价值", "低估": "价值", "被低估": "价值", "低估值": "价值",
-            "稳健": "稳健", "稳定": "稳健", "保守": "稳健", "高股息": "稳健",
+            "短线": "超卖反弹", "短期": "超卖反弹", "快": "超卖反弹",
+            "趋势": "趋势强势", "动量": "趋势强势", "强势": "趋势强势",
+            "价值": "低估值", "便宜": "低估值", "低估": "低估值",
+            "被低估": "低估值", "低估值": "低估值",
+            "稳健": "高股息", "稳定": "高股息", "保守": "高股息",
         }
         for k, v in style_map.items():
             if k in query:
                 style = v
                 break
-        return _tool_recommend_stock(style)
+        return ScreeningSkill().execute(strategy=style).format()
 
     # ── 偏好设置 ──
     if intent == "preference":
@@ -371,14 +380,14 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
             return update_preference("default", "watchlist", code)
         return "请提供要关注的股票代码或名称，如「关注 600519」。"
 
-    # ── 综合分析 ──
+    # ── 综合分析（迭代3：升级为 ComprehensiveSkill）──
     if intent == "analyze":
         if not code and keyword:
             code = _resolve_code(keyword)
         if not code:
             return "请提供要综合分析的6位股票代码，如 600519。"
-        from core.tools import _tool_analyze_stock
-        return _tool_analyze_stock(code)
+        from core.skills.comprehensive import ComprehensiveSkill
+        return ComprehensiveSkill().execute(code).format()
 
     # ── 默认：显示行情 + 短期走势 ──
     if not code and keyword:
@@ -400,20 +409,23 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
 
     # ── 什么都匹配不到 → 显示帮助 ──
     return (
-        "【迭代2 新能力】\n\n"
+        "【迭代3 Skill 系统】\n\n"
         "--- 基础查询 ---\n"
         '1. 搜索股票 — 「搜索平安银行」\n'
         '2. 实时行情 — 「查询 600519 的行情」\n'
         '3. 历史走势 — 「000001 近60天走势」\n'
         '4. 涨跌预测 — 「预测 600519 涨跌」\n'
         '5. 多股对比 — 「对比 600519 和 000001」\n\n'
-        "--- 迭代2 新增 ---\n"
-        '6. 技术指标 — 「分析 000001 的技术指标」\n'
-        '7. 投资知识 — 「什么是金叉死叉」「如何止损」\n'
-        '8. 综合分析 — 「综合分析贵州茅台」\n'
-        '9. 新闻舆情 — 「茅台最近有什么新闻」\n'
-        '10. 选股推荐 — 「推荐一只股票」「有什么低估的」\n'
-        '11. 关注股票 — 「关注 600519」\n\n'
+        "--- Skill 技能（迭代3新增）---\n"
+        '6. 技术分析报告 — 「技术分析贵州茅台」(评分+操作建议)\n'
+        '7. 基本面分析 — 「基本面分析 000001」(估值评级)\n'
+        '8. 风险评估 — 「评估 600519 的风险」(波动率/回撤/仓位)\n'
+        '9. 新闻舆情 — 「茅台最近有什么新闻」(情感分析)\n'
+        '10. 综合分析 — 「综合分析贵州茅台」(四维度报告)\n'
+        '11. 选股推荐 — 「推荐一只短线股」\n\n'
+        "--- 其他 ---\n"
+        '12. 投资知识 — 「什么是金叉死叉」\n'
+        '13. 关注股票 — 「关注 600519」\n\n'
         "请告诉我您需要什么？"
     )
 
@@ -519,6 +531,10 @@ def _classify_intent(query: str) -> str:
     if any(w in q for w in ["新闻", "公告", "消息", "舆情", "资讯", "有什么新闻",
                               "最新消息", "相关新闻"]):
         return "news"
+    # 风险意图（迭代3新增）
+    if any(w in q for w in ["风险", "回撤", "波动", "仓位", "止损", "止损位",
+                              "安全吗", "稳不稳", "风险大", "最大亏损"]):
+        return "risk"
     # 综合分析意图
     if any(w in q for w in ["综合", "全面", "详细", "分析报告", "综合看看"]):
         return "analyze"

@@ -299,6 +299,41 @@ def _tool_update_preference(key: str, value: str) -> str:
 
 
 # ═════════════════════════════════════════════════════════════
+# 迭代 3 新增：Skill 工具适配器
+# 将 Skill 包装为符合 ToolDef 接口的处理函数
+# ═════════════════════════════════════════════════════════════
+
+def _tool_technical_analysis(code: str, days: str = "90") -> str:
+    """技术分析 Skill：均线/MACD/RSI/布林带/KDJ/K线形态 + 综合评分。"""
+    from core.skills.technical import TechnicalSkill
+    return TechnicalSkill().execute(code, days=days).format()
+
+
+def _tool_fundamental_analysis(code: str) -> str:
+    """基本面分析 Skill：PE/PB/ROE/毛利率等财务指标 + 估值评级。"""
+    from core.skills.fundamental import FundamentalSkill
+    return FundamentalSkill().execute(code).format()
+
+
+def _tool_risk_assessment(code: str, days: str = "252") -> str:
+    """风险评估 Skill：波动率/最大回撤/VaR + 风险等级 + 仓位建议。"""
+    from core.skills.risk import RiskSkill
+    return RiskSkill().execute(code, days=days).format()
+
+
+def _tool_news_sentiment(code: str, keyword: str = "") -> str:
+    """新闻舆情 Skill：近期新闻 + 关键词提取 + 情感分析。"""
+    from core.skills.news import NewsSkill
+    return NewsSkill().execute(code, keyword=keyword).format()
+
+
+def _tool_comprehensive_analysis(code: str) -> str:
+    """综合分析 Skill：技术面+基本面+风险+舆情四维度综合报告。"""
+    from core.skills.comprehensive import ComprehensiveSkill
+    return ComprehensiveSkill().execute(code).format()
+
+
+# ═════════════════════════════════════════════════════════════
 # 工具注册表
 # ═════════════════════════════════════════════════════════════
 
@@ -398,6 +433,46 @@ ALL_TOOLS: List[ToolDef] = [
         },
         handler=_tool_update_preference,
     ),
+    # ── Skill 工具（迭代3新增）──
+    ToolDef(
+        name="technical_analysis",
+        description="【技能】完整技术分析报告：均线/MACD/RSI/布林带/KDJ/K线形态 + 综合评分(0-100) + 操作建议。当用户要求技术面分析、看指标、走势判断时优先使用。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码"},
+            "days": {"type": "string", "description": "计算天数，默认90"},
+        },
+        handler=_tool_technical_analysis,
+    ),
+    ToolDef(
+        name="fundamental_analysis",
+        description="【技能】基本面分析报告：PE/PB估值区间判断 + ROE/毛利率/营收/净利润等财务指标 + 估值评级。当用户要求基本面分析、看财报、估值判断时优先使用。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码"}},
+        handler=_tool_fundamental_analysis,
+    ),
+    ToolDef(
+        name="risk_assessment",
+        description="【技能】风险评估报告：波动率/最大回撤/下行风险/VaR + 风险等级(0-3) + 仓位与止损建议。当用户询问风险、止损、仓位时优先使用。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码"},
+            "days": {"type": "string", "description": "分析天数，默认252（约1年）"},
+        },
+        handler=_tool_risk_assessment,
+    ),
+    ToolDef(
+        name="news_sentiment",
+        description="【技能】新闻舆情分析：近期新闻列表 + 高频关键词提取 + 情感倾向分析(正面/负面/中性)。当用户询问新闻、消息、舆情时优先使用。",
+        parameters={
+            "code": {"type": "string", "description": "6位数字股票代码"},
+            "keyword": {"type": "string", "description": "可选：额外搜索关键词"},
+        },
+        handler=_tool_news_sentiment,
+    ),
+    ToolDef(
+        name="comprehensive_analysis",
+        description="【技能】综合分析报告：技术面+基本面+风险评估+新闻舆情四维度一站式分析 + 综合评分。当用户要求综合分析、全面看看、深度分析时优先使用。",
+        parameters={"code": {"type": "string", "description": "6位数字股票代码"}},
+        handler=_tool_comprehensive_analysis,
+    ),
 ]
 
 # 工具名 → ToolDef 的快速索引
@@ -409,10 +484,15 @@ TOOL_MAP: Dict[str, ToolDef] = {t.name: t for t in ALL_TOOLS}
 
 # 基础工具：搜索 + 行情 + K线
 _BASIC_TOOLS = {"search_stock", "get_stock_info", "get_stock_history"}
-# 技术工具：基础 + 指标 + 预测
-_TECHNICAL_TOOLS = _BASIC_TOOLS | {"calc_indicators", "predict_stock"}
-# 全量工具：技术 + 财务 + 新闻 + 对比 + 综合分析 + 选股
-_FULL_TOOLS = _TECHNICAL_TOOLS | {"get_financials", "get_news", "compare_stocks", "analyze_stock", "screen_stocks", "recommend_stock"}
+# 技术工具：基础 + 指标 + 预测 + 技术分析 Skill
+_TECHNICAL_TOOLS = _BASIC_TOOLS | {"calc_indicators", "predict_stock", "technical_analysis"}
+# 全量工具：技术 + 财务 + 新闻 + 对比 + 综合分析 + 选股 + 全部 Skill
+_FULL_TOOLS = _TECHNICAL_TOOLS | {
+    "get_financials", "get_news", "compare_stocks", "analyze_stock",
+    "screen_stocks", "recommend_stock",
+    "fundamental_analysis", "risk_assessment", "news_sentiment",
+    "comprehensive_analysis",
+}
 # 知识工具：检索 + 偏好
 _KNOWLEDGE_TOOLS = {"search_knowledge", "update_preference"}
 
