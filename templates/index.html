@@ -166,10 +166,19 @@
     function addMsg(role, text) {
       const div = document.createElement('div');
       div.className = 'msg ' + role;
-      div.innerHTML = `<div class="avatar">${role === 'user' ? '我' : 'AI'}</div>
-                       <div class="bubble">${text}</div>`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = role === 'user' ? '我' : 'AI';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+
+      div.appendChild(role === 'user' ? bubble : avatar);
+      div.appendChild(role === 'user' ? avatar : bubble);
       chat.appendChild(div);
-      chat.scrollTop = chat.scrollHeight;  // 自动滚到底部
+      chat.scrollTop = chat.scrollHeight;
       return div;
     }
 
@@ -178,8 +187,23 @@
       const div = document.createElement('div');
       div.className = 'msg assistant';
       div.id = 'loadingMsg';
-      div.innerHTML = `<div class="avatar">AI</div>
-                       <div class="bubble"><div class="loading"><span></span><span></span><span></span></div></div>`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = 'AI';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      const loading = document.createElement('div');
+      loading.className = 'loading';
+      for (let i = 0; i < 3; i++) {
+        const dot = document.createElement('span');
+        loading.appendChild(dot);
+      }
+      bubble.appendChild(loading);
+
+      div.appendChild(avatar);
+      div.appendChild(bubble);
       chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
     }

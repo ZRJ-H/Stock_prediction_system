@@ -16,13 +16,21 @@ Flask 主应用（Stock Prediction Web App）
 
 from __future__ import annotations
 
-import traceback
+import logging
+import os
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
 from core.agent import StockAgent
 from core.model_service import StockCNNService
+
+# 日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("stock_app")
 
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
@@ -62,8 +70,8 @@ def chat():
     try:
         reply = agent.run(query, session_id=session_id)
     except Exception:
-        # 异常时返回完整堆栈（调试友好）
-        reply = f"处理请求时出错:\n{traceback.format_exc()}"
+        logger.exception("处理请求时出错，query=%s", query[:200])
+        reply = "抱歉，处理您的请求时出现了内部错误，请稍后重试。"
 
     return jsonify({"reply": reply})
 
@@ -146,5 +154,6 @@ def health():
 
 
 if __name__ == "__main__":
-    # 开发模式启动（生产环境请使用 gunicorn 等 WSGI 服务器）
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # debug 模式由 FLASK_DEBUG 环境变量控制（默认关闭）
+    is_debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    app.run(host="127.0.0.1", port=5000, debug=is_debug)

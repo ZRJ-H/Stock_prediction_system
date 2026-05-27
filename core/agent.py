@@ -141,6 +141,11 @@ class StockAgent:
              c. 如果是 text → 返回最终回复
           5. 超时或异常 → 降级到规则模式
         """
+        # 注入当前 session，确保 tools.py 中偏好操作使用正确的 session_id
+        if session_id:
+            from core.tools import set_current_session
+            set_current_session(session_id)
+
         system_prompt = _build_system_prompt(session_id)
         tool_group = self._select_tool_group(query)
         active_tools = get_tools_for_group(tool_group)
@@ -228,12 +233,14 @@ class StockAgent:
         keyword = _extract_keyword(query)
         intent = _classify_intent(query)
 
-        # 保存用户消息到会话
+        # 注入当前 session，确保偏好/记忆写入正确的用户文件
         if session_id:
             from core.memory import add_message
             add_message(session_id, "user", query)
+            from core.tools import set_current_session
+            set_current_session(session_id)
 
-        reply = _dispatch(query, code, keyword, intent)
+        reply = _dispatch(query, code, keyword, intent, session_id)
 
         # 保存助手回复到会话
         if session_id and reply:
@@ -246,7 +253,8 @@ class StockAgent:
 # 意图分发器：根据意图类型路由到对应的工具处理函数
 # ═════════════════════════════════════════════════════════════
 
-def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: str) -> str:
+def _dispatch(query: str, code: Optional[str], keyword: Optional[str],
+              intent: str, session_id: str = "") -> str:
     """根据意图类型执行对应的工具并返回结果。
 
     意图 → 工具映射：
@@ -377,7 +385,8 @@ def _dispatch(query: str, code: Optional[str], keyword: Optional[str], intent: s
         if not code and keyword:
             code = _resolve_code(keyword)
         if code:
-            return update_preference("default", "watchlist", code)
+            sid = session_id or "default"
+            return update_preference(sid, "watchlist", code)
         return "请提供要关注的股票代码或名称，如「关注 600519」。"
 
     # ── 综合分析（迭代3：升级为 ComprehensiveSkill）──
