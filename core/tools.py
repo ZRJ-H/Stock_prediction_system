@@ -292,20 +292,20 @@ def _tool_recommend_stock(style: str = "综合评分") -> str:
     return recommend_stock(style=style)
 
 
-# 当前请求的 session_id（由 agent 在调用前设置，避免工具内部写死 default）
-_current_session_id: str = ""
+# 当前请求的 session_id，使用 ContextVar 隔离并发请求（避免多线程/协程串号）
+import contextvars as _ctx
+_current_session_id: _ctx.ContextVar[str] = _ctx.ContextVar("session_id", default="")
 
 
 def set_current_session(session_id: str) -> None:
-    """设置当前请求的 session_id。agent 在调用工具前调用此函数。"""
-    global _current_session_id
-    _current_session_id = session_id
+    """设置当前请求的 session_id。agent 在每次请求开始前调用。"""
+    _current_session_id.set(session_id)
 
 
 def _tool_update_preference(key: str, value: str) -> str:
     """更新用户偏好设置（关注列表/分析风格/风险偏好）。"""
     from core.memory import update_preference
-    sid = _current_session_id or "default"
+    sid = _current_session_id.get() or "default"
     return update_preference(sid, key, value)
 
 

@@ -51,7 +51,7 @@ templates/index.html (前端 Chat UI)
         ├── core/market_data.py (腾讯免费API：行情+K线)
         ├── core/indicators.py (纯NumPy：MA/MACD/RSI/BOLL/KDJ/形态)
         ├── core/model_service.py (CNN/MLP双后端预测)
-        ├── core/rag_service.py (FAISS向量检索知识库)
+        ├── core/rag_service.py (NumPy向量检索知识库)
         ├── core/memory.py (会话记忆+偏好持久化)
         ├── core/fundamentals.py (AKShare财报)
         ├── core/news.py (腾讯/东方财富新闻)
@@ -108,7 +108,7 @@ Stock_prediction_system/
 │   ├── model_service.py        # CNN/MLP 模型预测
 │   ├── data_pipeline.py        # 滑动窗口+归一化
 │   ├── llm_service.py          # OpenAI 兼容 API (function calling)
-│   ├── rag_service.py          # FAISS 向量检索知识库
+│   ├── rag_service.py          # NumPy 向量检索知识库
 │   ├── memory.py               # 会话记忆+用户偏好
 │   ├── fundamentals.py         # AKShare 财报数据
 │   ├── news.py                 # 腾讯/东方财富新闻
@@ -144,7 +144,7 @@ Stock_prediction_system/
 | 前端 | 原生 HTML/CSS/JS |
 | 深度学习 | TensorFlow CNN / sklearn MLP (降级) |
 | 数值计算 | NumPy |
-| 向量检索 | sentence-transformers + FAISS |
+| 向量检索 | sentence-transformers + NumPy（可切 FAISS） |
 | 数据源 | 腾讯免费 API / AKShare (可选) |
 | LLM | OpenAI 兼容协议 |
 

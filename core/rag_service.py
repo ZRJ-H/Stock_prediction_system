@@ -1,7 +1,7 @@
 """
 RAG 知识库服务（RAG Service）
 =============================
-基于 FAISS + sentence-transformers 的本地投资知识检索：
+基于 sentence-transformers + NumPy 点积的本地投资知识检索（小规模下等价于 FAISS IndexFlatIP）：
 
 文档管理：
   - 源文件：data/knowledge/*.md（Markdown 格式）

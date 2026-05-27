@@ -35,7 +35,7 @@ templates/index.html (前端 Chat UI)
         │   ├── calc_indicators → core/indicators.py (纯NumPy)
         │   ├── get_financials → core/fundamentals.py (AKShare)
         │   ├── get_news → core/news.py (腾讯/东方财富)
-        │   ├── search_knowledge → core/rag_service.py (FAISS)
+        │   ├── search_knowledge → core/rag_service.py (NumPy向量检索)
         │   ├── analyze_stock (行情+指标+预测三合一)
         │   ├── screen_stocks / recommend_stock → core/screener.py
         │   └── update_preference → core/memory.py
@@ -181,7 +181,7 @@ templates/index.html (前端 Chat UI)
 | 深度学习 | TensorFlow (可选) | 当前不可用 |
 | 机器学习 | scikit-learn MLP | 当前降级后端 |
 | 数值计算 | NumPy | 技术指标核心 |
-| 向量检索 | sentence-transformers + FAISS(隐式) | 点积=余弦相似度 |
+| 向量检索 | sentence-transformers + NumPy 点积（可切 FAISS） | 余弦相似度 |
 | 数据源 | 腾讯 API / AKShare(可选) | HTTP 调用 |
 | LLM | OpenAI 兼容协议 | 任何兼容服务 |
 
@@ -331,7 +331,7 @@ RAG: 已加载（knowledge_index.json）
 | 新闻舆情 | 多源获取 + 关键词 + 情感分析 | ●●○○ |
 | 选股推荐 | 5策略评分排名 | ●●●○ |
 | 预测模型 | MLP降级版（训练数据来源不明） | ●●○○ |
-| 知识检索 | FAISS向量检索（3篇文档） | ●●○○ |
+| 知识检索 | NumPy向量检索（3篇文档，未接FAISS） | ●●○○ |
 | LLM调度 | function calling + 规则双模式 | ●●●○ |
 | 会话记忆 | 进程内存30min TTL + 偏好JSON持久化 | ●●○○ |
 | 前端UI | 原生HTML/CSS/JS 聊天界面 | ●●○○ |
