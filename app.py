@@ -60,12 +60,21 @@ def chat():
     Response（JSON）:
         reply: Agent 的分析回复文本
     """
+    from core.memory import validate_session_id
+
     data = request.get_json(silent=True) or {}
     query = (data.get("query") or "").strip()
     session_id = (data.get("session_id") or "").strip()
 
     if not query:
         return jsonify({"reply": "请输入您想了解的问题。"})
+
+    # session_id 为非空但非法时拒绝，与 /memory 行为一致
+    if session_id:
+        try:
+            validate_session_id(session_id)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
     try:
         reply = agent.run(query, session_id=session_id)

@@ -266,7 +266,12 @@ def _tool_search_knowledge(query: str) -> str:
     """从 RAG 知识库检索投资相关知识。"""
     from core.rag_service import RAGService
     rag = RAGService()
-    rag.initialize()
+    if not rag.initialize():
+        return (
+            "知识库尚未初始化或当前不可用。"
+            "请确认 data/knowledge/ 下存在 Markdown 文档，"
+            "并已安装 sentence-transformers；首次检索可能需要构建索引。"
+        )
     return rag.search_formatted(query)
 
 

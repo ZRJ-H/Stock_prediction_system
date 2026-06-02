@@ -15,12 +15,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import List
 
 import requests
 
 from core.market_data import _detect_market, get_realtime_quote
+
+logger = logging.getLogger("stock_app.news")
 
 
 @dataclass
@@ -94,7 +97,7 @@ def _fetch_tencent_news(code: str, limit: int = 5) -> List[NewsItem]:
                 source=n.get("src", "腾讯财经"),
             ))
     except Exception:
-        pass  # 静默降级
+        logger.warning("腾讯新闻获取失败 code=%s", code, exc_info=True)
     return items
 
 
@@ -138,7 +141,7 @@ def fetch_news(code: str, keyword: str = "", limit: int = 5) -> NewsBundle:
                     ))
                 return NewsBundle(code=code, name=name, items=items, source="东方财富/AKShare")
         except Exception:
-            pass  # 降级到腾讯
+            logger.warning("东方财富新闻获取失败 code=%s", code, exc_info=True)
 
     # 数据源 2：腾讯财经（降级）
     if code:

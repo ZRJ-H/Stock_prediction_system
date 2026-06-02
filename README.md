@@ -166,18 +166,19 @@ Stock_prediction_system/
 ## 模型训练（可选）
 
 ```bash
-# 使用示例数据集训练 MLP 模型（无需 TensorFlow）
+# 使用示例数据集训练预测模型
 python -c "
 import pandas as pd
 from core.model_service import StockCNNService
-df = pd.read_csv('dataset/tt.csv', parse_dates=['date'])
+
+df = pd.read_csv('dataset/tt.csv')
 svc = StockCNNService(model_dir='models')
 result = svc.train(df)
 print(f'训练完成: 准确率 {result[\"test_accuracy\"]:.2%}')
 "
 ```
 
-模型文件生成到 `models/` 目录：`stock_mlp.joblib` + `scaler.json` + `meta.json`。
+如已安装 TensorFlow，将优先训练 CNN；如 TensorFlow 不可用，将自动降级为 sklearn MLP。模型文件生成到 `models/` 目录：`stock_cnn.keras`（或 `stock_mlp.joblib`）+ `scaler.json` + `meta.json`。
 
 ## 常见问题
 

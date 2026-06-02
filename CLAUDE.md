@@ -511,6 +511,37 @@ Claude Code 每次完成工作后，应更新本节。格式如下：
 - README.md（演示命令 + FAQ）
 - CLAUDE.md（进度更新）
 
+### 2026-06-02 — Claude Code 交付修补迭代
+
+日期：2026-06-02
+执行人：Claude Code (Claude Opus 4.7)
+本次目标：完成第 12 节交付修补迭代（4 项 P0/P1 修复）
+已完成：
+- README 模型训练命令修正：去掉不存在的 parse_dates=['date']，补充 CNN/MLP 自动选择说明
+- /chat session_id 校验：非空但非法时返回 400，与 /memory 行为一致；不传 session_id 仍可正常使用
+- RAG 初始化失败提示：_tool_search_knowledge 检查 rag.initialize() 返回值，失败时返回"知识库尚未初始化或当前不可用"
+- news.py 日志：_fetch_tencent_news 和 akshare 分支的静默 except 均增加 logger.warning(exc_info=True)
+- RAGService.initialize() 异常分支增加 logger.warning
+- 测试：新增 test_chat_invalid_session_returns_400、test_chat_without_session_still_works、test_search_knowledge_reports_unavailable_when_rag_init_fails
+验证结果：
+- pytest -q: 46 passed in 1.88s
+- git diff --check: 无实质错误
+- 第 12.3 节 8 个验收项全部完成
+剩余问题：
+- 无（本轮交付修补已完成）
+下一步：
+- E1 前端 ECharts 图表
+- E2 LLM 接入 DeepSeek/Ollama
+- E3 模型训练和回测升级
+涉及文件：
+- README.md（训练命令修正）
+- app.py（/chat session_id 校验）
+- core/tools.py（RAG init 返回值检查）
+- core/news.py（静默降级 → warning 日志）
+- core/rag_service.py（初始化失败 warning 日志）
+- tests/test_core.py（+3 项测试）
+- CLAUDE.md（进度记录）
+
 ## 11. 最终完成标准
 
 当满足以下条件时，可以认为项目 coding 基本完成：
@@ -533,4 +564,365 @@ Claude Code 每次完成工作后，应更新本节。格式如下：
 2. 验证命令和结果
 3. 剩余风险
 4. 后续可选增强
+```
+
+## 12. 下一阶段严谨执行方案
+
+本节是 2026-06-02 代码审查后的下一阶段自动推进任务书。Claude Code 应优先执行本节，直到所有验收项完成并更新进度记录。不要跳过审查项，不要先做新功能。
+
+### 12.1 当前审查结论
+
+当前项目已完成第一轮交付收口：
+
+```text
+git status --short: clean
+pytest -q: 43 passed
+```
+
+但仍存在 4 个交付前必须修复的问题：
+
+```text
+P0-1 README 模型训练命令与 dataset/tt.csv 表头不匹配。
+P0-2 /chat 没有校验 session_id，和 /memory 行为不一致。
+P1-1 RAG 初始化失败与“未检索到内容”提示混淆。
+P1-2 news.py 仍有静默降级，没有 warning 日志。
+```
+
+这些问题比接入 LLM、ECharts、模型升级更优先。先修小硬伤，再做增强。
+
+### 12.2 严禁事项
+
+Claude Code 在执行本阶段时严禁：
+
+- 严禁读取 `.claude/`。
+- 严禁读取 `.pytest_cache/`、`__pycache__/`、`.cache/`、任意 `cache/` 目录。
+- 严禁删除用户文件或运行产物。
+- 严禁使用 `git reset --hard`。
+- 严禁回滚用户未明确要求回滚的改动。
+- 严禁引入新框架。
+- 严禁为了修文档而改动训练核心逻辑，除非测试证明训练逻辑本身存在 bug。
+- 严禁依赖真实外部网络完成测试。
+- 严禁把 API key、token、密钥写入代码或文档。
+- 严禁把异常堆栈直接暴露给前端用户。
+- 严禁让 `/health` 加载 RAG embedding 模型或构建索引。
+
+### 12.3 本阶段目标
+
+目标：完成一个“交付修补迭代”，解决上面 4 个问题，并保证测试通过。
+
+必须完成：
+
+```text
+[ ] 修正 README 模型训练命令，使其和 dataset/tt.csv 表头一致。
+[ ] /chat 对非法 session_id 返回 400，或明确忽略非法 session_id；推荐返回 400。
+[ ] RAG 初始化失败时返回明确提示，不再和“未检索到内容”混淆。
+[ ] news.py 的静默降级增加 logger.warning。
+[ ] 增加或更新测试覆盖以上行为。
+[ ] pytest -q 全部通过。
+[ ] git diff --check 无实质错误。
+[ ] 更新 CLAUDE.md 进度记录。
+```
+
+### 12.4 具体任务
+
+#### Task A：修正 README 模型训练命令
+
+问题：
+
+- `README.md` 当前训练示例使用 `parse_dates=['date']`。
+- `dataset/tt.csv` 实际表头为：
+
+```text
+timestamp,open,high,low,close,vol,...
+```
+
+处理要求：
+
+- 将 README 训练命令改成可直接运行的版本。
+- 不要写不存在的 `date` 列。
+- 如果文档说“训练 MLP”，必须保证描述准确。
+- 当前 `StockCNNService.train()` 会在 TensorFlow 可用时优先训练 CNN；如果文档想强调 MLP，应写成“无 TensorFlow 时自动降级为 MLP”，不要写“强制 MLP”。
+
+推荐 README 文案：
+
+```bash
+python -c "
+import pandas as pd
+from core.model_service import StockCNNService
+
+df = pd.read_csv('dataset/tt.csv')
+svc = StockCNNService(model_dir='models')
+result = svc.train(df)
+print(f'训练完成: 准确率 {result[\"test_accuracy\"]:.2%}')
+"
+```
+
+推荐补充说明：
+
+```text
+如已安装 TensorFlow，将优先训练 CNN；如 TensorFlow 不可用，将自动降级为 sklearn MLP。
+```
+
+验收：
+
+- README 中不再出现 `parse_dates=['date']`。
+- README 对 CNN/MLP 描述与代码逻辑一致。
+
+#### Task B：给 /chat 增加 session_id 校验
+
+问题：
+
+- `/memory` 已校验 session_id。
+- `/chat` 仍直接接收 session_id 并传入 `agent.run()`。
+
+处理要求：
+
+- 在 `app.py` 的 `/chat` 中复用 `core.memory.validate_session_id()`。
+- 当 `session_id` 为空时允许继续，因为前端之外的调用可以不带 session。
+- 当 `session_id` 非空但非法时，返回：
+
+```json
+{"error": "session_id ..."}
+```
+
+HTTP 状态码：
+
+```text
+400
+```
+
+测试要求：
+
+- 新增 `/chat` 非法 session_id 测试。
+- 新增 `/chat` 不带 session_id 仍可工作测试，或者确认已有测试覆盖。
+- 保持 `/chat` 空 query 行为不变。
+
+验收：
+
+```text
+POST /chat {"query":"搜索 贵州茅台","session_id":"../etc"} -> 400
+POST /chat {"query":"搜索 贵州茅台"} -> 200
+```
+
+#### Task C：区分 RAG 初始化失败与未检索到内容
+
+问题：
+
+- `core/tools.py` 调用 `rag.initialize()` 但不检查返回值。
+- `RAGService.search_formatted()` 在初始化失败或没结果时都可能返回“知识库中未找到相关内容”。
+
+处理要求：
+
+- 修改 `_tool_search_knowledge()`：
+  - 调用 `rag.initialize()`。
+  - 如果返回 False，直接返回明确提示。
+  - 不要再继续调用 `search_formatted()`。
+
+推荐返回文案：
+
+```text
+知识库尚未初始化或当前不可用。请确认 data/knowledge/ 下存在 Markdown 文档，并已安装 sentence-transformers；首次检索可能需要构建索引。
+```
+
+- 可选：在 `RAGService.initialize()` 失败时加 logger.warning，但不要大量改造。
+- 不要让异常抛到前端。
+
+测试要求：
+
+- mock 或 monkeypatch `RAGService.initialize` 返回 False，断言 `_tool_search_knowledge()` 返回“知识库尚未初始化”或“不可用”。
+- 保留现有 `RAGService.search_formatted()` 降级测试。
+
+验收：
+
+```text
+RAG 初始化失败 -> 明确初始化失败提示
+RAG 初始化成功但无结果 -> 知识库中未找到相关内容
+```
+
+#### Task D：news.py 增加日志
+
+问题：
+
+- `core/news.py` 仍存在静默降级。
+
+处理要求：
+
+- 在 `core/news.py` 顶部增加：
+
+```python
+import logging
+logger = logging.getLogger("stock_app.news")
+```
+
+- 对静默 `except Exception` 增加 `logger.warning(..., exc_info=True)`。
+- 不要改变原有降级行为。
+- 不要让新闻失败影响综合分析主流程。
+
+验收：
+
+- `rg -n "pass  # 静默降级" core/news.py` 不应再命中。
+- 测试通过。
+
+### 12.5 测试计划
+
+本阶段必须新增或更新测试。推荐集中在 `tests/test_core.py`，如果文件过大，也可以新增：
+
+```text
+tests/test_api.py
+tests/test_tools.py
+```
+
+最低测试清单：
+
+```text
+[ ] test_chat_invalid_session_returns_400
+[ ] test_chat_without_session_still_works
+[ ] test_search_knowledge_reports_unavailable_when_rag_init_fails
+[ ] 原有 43 个测试继续通过
+```
+
+测试约束：
+
+- 不访问真实网络。
+- 不下载 sentence-transformers 模型。
+- 不写真实 `data/memory`，需要 monkeypatch 临时目录。
+- 不依赖模型文件存在。
+
+运行：
+
+```powershell
+pytest -q
+```
+
+### 12.6 审查命令
+
+开始前：
+
+```powershell
+git status --short
+rg --files -g '!**/.claude/**' -g '!**/.pytest_cache/**' -g '!**/__pycache__/**' -g '!**/.cache/**' -g '!**/cache/**'
+```
+
+修改后：
+
+```powershell
+pytest -q
+git diff --check
+git diff --stat
+git diff
+```
+
+提交前：
+
+```powershell
+git status --short
+pytest -q
+```
+
+推荐提交信息：
+
+```text
+fix: close delivery review gaps
+```
+
+### 12.7 完成后再进入增强路线
+
+只有当 12.3 的所有验收项完成后，才进入增强路线。
+
+增强优先级：
+
+```text
+E1 前端 ECharts 图表
+E2 LLM 接入 DeepSeek/Ollama
+E3 模型训练和回测升级
+```
+
+#### E1：前端 ECharts 图表
+
+目标：
+
+- 展示 K 线/收盘价走势。
+- 展示 MA5/MA20。
+- 可选展示 MACD/RSI。
+
+要求：
+
+- 新增 API 时必须有测试。
+- 不要让图表阻塞聊天主流程。
+- 外部 CDN 不稳定时，应考虑本地依赖或明确说明。
+
+#### E2：LLM 接入
+
+目标：
+
+- 配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 后，验证 LLM 模式。
+- 优先使用 DeepSeek 或本地 Ollama 兼容接口。
+
+要求：
+
+- 不提交任何 key。
+- LLM 不可用时必须自动降级规则模式。
+- 测试使用 mock，不真实调用外部 API。
+
+#### E3：模型训练和回测升级
+
+目标：
+
+- 增加 `train_model.py`。
+- 增加时间序列切分。
+- 增加滚动回测。
+- 让模型输出更可信。
+
+要求：
+
+- 不把模型预测包装成确定性投资建议。
+- README 明确模型局限。
+- 回测结果要包含样本量、准确率、基准对比和时间区间。
+
+### 12.8 Claude Code 本阶段执行提示词
+
+Claude Code 可直接执行以下提示词：
+
+```text
+请读取 CLAUDE.md，优先执行第 12 节“下一阶段严谨执行方案”。
+
+禁止读取 .claude 和缓存目录。不要先做 ECharts、LLM 或模型升级。
+
+本轮只完成交付修补迭代：
+1. 修 README 模型训练命令，使其匹配 dataset/tt.csv 的 timestamp 表头。
+2. 给 /chat 增加 session_id 校验，非法 session 返回 400。
+3. 修改 RAG 知识检索，初始化失败时返回明确不可用提示。
+4. 给 core/news.py 静默降级增加 warning 日志。
+5. 补测试。
+6. 跑 pytest -q 和 git diff --check。
+7. 更新 CLAUDE.md 进度记录。
+
+完成后输出：
+- 修改文件
+- 测试结果
+- 是否满足第 12.3 的所有验收项
+- 剩余风险
+- 是否建议提交
+```
+
+### 12.9 本阶段进度记录模板
+
+完成本阶段后，在本节下方追加记录：
+
+```text
+日期：
+执行人：
+本次目标：完成第 12 节交付修补迭代
+已完成：
+- README 模型训练命令修正：
+- /chat session_id 校验：
+- RAG 初始化失败提示：
+- news.py 日志：
+- 测试：
+验证结果：
+- pytest -q:
+- git diff --check:
+剩余问题：
+下一步：
+涉及文件：
 ```

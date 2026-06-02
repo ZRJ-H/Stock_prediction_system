@@ -200,6 +200,23 @@ def test_chat_valid_query(client):
     assert len(data["reply"]) > 0
 
 
+def test_chat_invalid_session_returns_400(client):
+    """/chat 非法 session_id 返回 400。"""
+    resp = client.post("/chat", json={
+        "query": "搜索平安银行",
+        "session_id": "../etc",
+    })
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_chat_without_session_still_works(client):
+    """/chat 不带 session_id 正常返回 200。"""
+    resp = client.post("/chat", json={"query": "搜索平安银行"})
+    assert resp.status_code == 200
+    assert "reply" in resp.get_json()
+
+
 def test_memory_get_missing_session(client):
     """GET /memory 缺少 session_id 返回 400。"""
     resp = client.get("/memory")
@@ -272,3 +289,14 @@ def test_rag_initialize_failure_does_not_raise():
     result = rag.initialize(force_rebuild=False)
     # 返回 False 表示无法初始化（如知识库目录为空），但不抛异常
     assert isinstance(result, bool)
+
+
+def test_search_knowledge_reports_unavailable_when_rag_init_fails(monkeypatch):
+    """RAG 初始化失败时，_tool_search_knowledge 返回明确不可用提示。"""
+    def fake_init_fails(self, force_rebuild=False):
+        return False
+
+    monkeypatch.setattr("core.rag_service.RAGService.initialize", fake_init_fails)
+    from core.tools import _tool_search_knowledge
+    result = _tool_search_knowledge("什么是金叉")
+    assert "不可用" in result or "尚未初始化" in result

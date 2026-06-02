@@ -21,11 +21,14 @@ RAG 知识库服务（RAG Service）
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger("stock_app.rag")
 
 # 路径常量
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -68,6 +71,7 @@ class RAGService:
                 return self._load_index()
             return self._build_index()
         except Exception:
+            logger.warning("RAG 初始化失败", exc_info=True)
             return False
 
     def search(self, query: str, top_k: int = 3) -> List[Tuple[str, str, float]]:
