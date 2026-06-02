@@ -352,3 +352,111 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 ---
 
 > **总结**：本轮审查系统性地暴露了 3 个高危安全/数据正确性问题 + 2 个文档准确性偏差 + 1 个模型评估方法缺陷。所有问题已在本轮修复（代码改 4 个文件 + 文档改 1 个文件 + 新增测试），项目从一个"功能完整但未经审查的原型"提升到"可通过基础安全审查的稳妥演示版"。
+
+---
+
+## 里程碑 M1 — 2026-06-02（E1：前端 ECharts 图表增强）
+
+> **提交**：`2199eb6` — feat: add stock history chart and frontend ECharts  
+> **分支**：`iter3-skill-system`  
+> **定位**：CC_AUTONOMOUS_ROADMAP.md 第 4 节，增强路线第一阶段  
+> **测试**：50 passed in 1.34s（+4 项 API 测试）
+
+---
+
+### 一、项目快照
+
+| 维度 | 状态 |
+|------|------|
+| 迭代 | iter3-skill-system |
+| 最近提交 | `2199eb6` |
+| 测试数量 | 50（+4 本阶段） |
+| 核心 6 条链路 | 全部可用（规则模式） |
+| LLM 模式 | 可选（需 OPENAI_API_KEY） |
+| RAG | 可选（需 sentence-transformers） |
+| 前端图表 | **新增 ECharts 走势图** |
+
+### 二、本阶段交付
+
+#### 后端：股票历史 K 线 API
+
+- **文件**：[app.py](app.py):168-205
+- **路由**：`GET /api/stock/<code>/history?days=90`
+- **校验**：正则 `\d{6}` 校验股票代码格式，非法返回 400
+- **天数限制**：1-365 天（`max(1, min(days, 365))`）
+- **降级**：K 线数据为空时返回 503 + `{"error": "K线数据暂不可用"}`
+
+#### 前端：ECharts 走势图
+
+- **文件**：[templates/index.html](templates/index.html)
+- **图表内容**：
+  - 收盘价折线（蓝色 `#2563eb`）
+  - MA5 虚线（橙色 `#f59e0b`）
+  - MA20 虚线（绿色 `#10b981`）
+  - 成交量柱状图（蓝色 `#93c5fd`）
+- **交互**：十字光标 tooltip、内滚轮缩放（dataZoom）
+- **触发方式**：正则提取用户输入中 6 位股票代码 → 自动调用 API → 显示图表
+- **降级设计**：
+  - 图表面板默认隐藏，仅在检测到股票代码时显示
+  - 数据加载失败 → 简短错误提示（不阻塞聊天）
+  - 手动关闭 → 图表销毁，聊天继续正常
+  - CDN 不可用 → ECharts 未定义时静默失败
+
+#### 前端错误处理修复
+
+- **问题**：`send()` 的 fetch 回调直接读 `d.reply`，未检查 HTTP 状态码。当 `/chat` 返回 400（非法 session_id）时，`d.reply` 为 `undefined`，前端显示空白
+- **修复**（templates/index.html:261-280）：
+  ```
+  修复前：.then(r => r.json()).then(d => addMsg('assistant', d.reply))
+  修复后：检查 r.ok → 非 200 时 throw Error(d.error) → catch 统一处理
+         + fallback: d.reply || d.error || '请求失败'
+  ```
+- **影响范围**：session_id 被污染场景下用户体验可感知，而非静默显示 `undefined`
+
+#### 测试覆盖
+
+- **文件**：[tests/test_core.py](tests/test_core.py):305-371
+- 新增 4 项测试（全部 mock `get_daily_kline`，不访问真实网络）：
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `test_stock_history_api_returns_200` | 正常返回 200 + 数据结构验证（code/days/items/字段） |
+| `test_stock_history_api_invalid_code_returns_400` | 含字母/长度不足/含中文 → 400 |
+| `test_stock_history_api_no_data_returns_503` | K 线空列表 → 503 + "不可用" |
+| `test_stock_history_api_respects_days_param` | days=30 参数正确传递到 get_daily_kline |
+
+### 三、变更文件清单
+
+| 文件 | 变更量 | 说明 |
+|------|--------|------|
+| `app.py` | +37 行 | stock_history 路由 |
+| `templates/index.html` | +188/-10 行 | ECharts CDN + CSS + HTML + JS + 错误处理修复 |
+| `tests/test_core.py` | +66 行 | 4 项 API 测试 |
+| `README.md` | +23 行 | API 路由表 + 图表功能章节 |
+| `CC_AUTONOMOUS_ROADMAP.md` | 新增 | CC 自动推进路线图（E1-E5 + 进度记录） |
+
+### 四、验收结果
+
+```text
+[x] GET /api/stock/<code>/history 可用
+[x] 前端 ECharts 走势图（收盘价/MA5/MA20/成交量）
+[x] 图表失败不影响聊天
+[x] /chat 400 错误前端可正确显示
+[x] 测试覆盖 API 成功/失败/非法参数
+[x] pytest -q: 50 passed
+[x] git diff --check 无实质错误
+[x] README 图表功能章节
+[x] CC_AUTONOMOUS_ROADMAP.md 进度记录
+```
+
+### 五、剩余风险与后续
+
+**已知限制**：
+1. ECharts 依赖 jsDelivr CDN，离线环境图表不显示（已做降级提示）
+2. 当前仅展示收盘价/均线/成交量，未包含 K 线蜡烛图（OHLC）
+
+**下一步（按路线图）**：
+- E2：综合分析报告结构化（固定章节：结论/技术面/基本面/风险/舆情/操作建议/免责声明）
+- E3：LLM 智能模式增强（DeepSeek/Ollama + 工具调用回退）
+- E4：模型训练与回测升级（时间序列切分 + 滚动回测）
+- E5：最终交付整理（DEMO_SCRIPT.md + README 最终版）
