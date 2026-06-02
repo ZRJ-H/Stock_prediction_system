@@ -148,6 +148,57 @@ Stock_prediction_system/
 | 数据源 | 腾讯免费 API / AKShare (可选) |
 | LLM | OpenAI 兼容协议 |
 
+## 核心演示命令
+
+启动系统后，在聊天界面输入以下6条命令，验证核心链路：
+
+| # | 输入 | 预期输出 |
+|---|------|----------|
+| 1 | `搜索 贵州茅台` | 返回 `600519 / 贵州茅台` |
+| 2 | `查询 600519 行情` | 返回最新价、涨跌幅、PE/PB 等字段 |
+| 3 | `分析 600519 技术指标` | 返回 MA/MACD/RSI/BOLL/KDJ + 综合评分 |
+| 4 | `评估 600519 风险` | 返回波动率/回撤/风险等级/仓位止损建议 |
+| 5 | `综合分析 600519` | 返回技术面+基本面+风险+舆情四维度报告 |
+| 6 | `什么是金叉死叉` | 返回 RAG 知识库检索内容 |
+
+> 如 RAG 知识库未初始化，链路 6 会返回"知识库中未找到相关内容"（优雅降级）。
+
+## 模型训练（可选）
+
+```bash
+# 使用示例数据集训练 MLP 模型（无需 TensorFlow）
+python -c "
+import pandas as pd
+from core.model_service import StockCNNService
+df = pd.read_csv('dataset/tt.csv', parse_dates=['date'])
+svc = StockCNNService(model_dir='models')
+result = svc.train(df)
+print(f'训练完成: 准确率 {result[\"test_accuracy\"]:.2%}')
+"
+```
+
+模型文件生成到 `models/` 目录：`stock_mlp.joblib` + `scaler.json` + `meta.json`。
+
+## 常见问题
+
+**Q: 启动后聊天界面显示异常？**
+A: 确保 `templates/index.html` 存在，且浏览器控制台无 JavaScript 报错。
+
+**Q: 行情/K线数据获取失败？**
+A: 系统使用腾讯免费 API，无需注册。检查网络是否能访问 `qt.gtimg.cn` 和 `web.ifzq.gtimg.cn`。
+
+**Q: 如何启用 LLM 智能模式？**
+A: 配置 `OPENAI_API_KEY` 环境变量，兼容 OpenAI、DeepSeek、通义千问、Ollama 等。
+
+**Q: 如何启用 AKShare 全量数据？**
+A: `pip install akshare`，设置环境变量 `USE_AKSHARE=1`。
+
+**Q: 模型预测为什么显示"简易版"？**
+A: 尚未训练模型时，系统自动降级为均线交叉判断。运行上面的训练命令即可。
+
+**Q: RAG 知识库如何构建？**
+A: 在 `data/knowledge/` 下放置 `.md` 文件，首次知识检索时自动构建索引。也可以启动后首次询问投资知识触发构建。
+
 ## 候选股池
 
 内置 38 只大市值/高流动性 A 股，覆盖沪深主板、创业板、科创板。  

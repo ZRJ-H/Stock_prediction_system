@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger("stock_app.market_data")
 
 
 @dataclass
@@ -205,6 +208,7 @@ def get_realtime_quote(code: str) -> Optional[StockQuote]:
             return None
         return _parse_tencent_quote(r.text)
     except Exception:
+        logger.warning("获取实时行情失败 code=%s", code, exc_info=True)
         return None
 
 
@@ -278,6 +282,7 @@ def get_daily_kline(code: str, days: int = 90) -> List[KlineBar]:
         # 截取最近 days 根 K 线
         return bars[-days:] if len(bars) > days else bars
     except Exception:
+        logger.warning("获取日K线失败 code=%s days=%s", code, days, exc_info=True)
         return []
 
 

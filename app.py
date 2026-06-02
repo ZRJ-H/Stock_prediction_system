@@ -86,11 +86,15 @@ def get_memory():
     Response（JSON）:
         session_id / watchlist / preferred_style / risk_tolerance / last_session
     """
-    from core.memory import load_preferences
+    from core.memory import load_preferences, validate_session_id
 
     session_id = (request.args.get("session_id") or "").strip()
     if not session_id:
         return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        validate_session_id(session_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     prefs = load_preferences(session_id)
     return jsonify({
@@ -114,7 +118,7 @@ def update_memory():
     Response（JSON）:
         message: 操作结果描述
     """
-    from core.memory import update_preference
+    from core.memory import update_preference, validate_session_id
 
     data = request.get_json(silent=True) or {}
     session_id = (data.get("session_id") or "").strip()
@@ -123,6 +127,10 @@ def update_memory():
 
     if not session_id or not key:
         return jsonify({"error": "缺少 session_id 或 key"}), 400
+    try:
+        validate_session_id(session_id)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     msg = update_preference(session_id, key, value)
     return jsonify({"message": msg})
@@ -130,26 +138,20 @@ def update_memory():
 
 @app.route("/health", methods=["GET"])
 def health():
-    """健康检查接口：返回各核心模块的状态。
+    """健康检查接口：返回各核心模块的状态（轻量级，不触发重型初始化）。
 
     前端通过此接口展示状态指示灯：
-      - model_loaded:  CNN/MLP 模型是否已训练
+      - model_loaded:  CNN/MLP 模型文件是否存在
       - llm_available: OPENAI_API_KEY 是否已配置
-      - rag_ready:     RAG 知识库是否已构建并加载
+      - rag_ready:     RAG 索引文件是否存在（不加载 embedding 模型）
     """
-    rag_ready = False
-    try:
-        from core.rag_service import RAGService
-        r = RAGService()
-        rag_ready = r.is_ready() or r.initialize()
-    except Exception:
-        pass
+    from core.rag_service import INDEX_PATH
 
     return jsonify({
         "status": "ok",
         "model_loaded": model_service.has_trained_model(),
         "llm_available": bool(agent.llm.api_key),
-        "rag_ready": rag_ready,
+        "rag_ready": INDEX_PATH.exists(),
     })
 
 

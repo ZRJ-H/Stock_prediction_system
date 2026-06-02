@@ -22,10 +22,13 @@ Agent 可调用工具的注册、分组与执行框架。
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
+
+logger = logging.getLogger("stock_app.tools")
 
 from core.market_data import (
     StockQuote,
@@ -177,6 +180,7 @@ def _tool_predict_stock(code: str) -> str:
         svc = _get_model_service()
         result = svc.predict(df_model)
     except Exception:
+        logger.warning("模型预测失败，降级为均线交叉 code=%s", code, exc_info=True)
         # Fallback：简易均线交叉判断
         close = df["close"]
         latest = close.iloc[-1]

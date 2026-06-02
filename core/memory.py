@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,44 @@ from typing import Any, Dict, List, Optional
 BASE_DIR = Path(__file__).resolve().parent.parent
 # 持久化偏好存储目录
 MEMORY_DIR = BASE_DIR / "data" / "memory"
+
+# ═════════════════════════════════════════════════════════════
+# session_id 安全校验
+# ═════════════════════════════════════════════════════════════
+
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,80}\Z")
+
+
+def validate_session_id(session_id: str) -> str:
+    """校验 session_id 格式合法性。
+
+    规则：1~80 字符，仅允许字母、数字、下划线、短横线。
+    拒绝空字符串、含路径分隔符/点号/空白的输入。
+
+    Returns:
+        校验通过的 session_id
+
+    Raises:
+        ValueError: 格式不合法
+    """
+    if not session_id:
+        raise ValueError("session_id 不能为空")
+    if len(session_id) > 80:
+        raise ValueError("session_id 长度不能超过 80 个字符")
+    if not _SESSION_ID_RE.match(session_id):
+        raise ValueError("session_id 只能包含字母、数字、下划线和短横线")
+    return session_id
+
+
+def _safe_memory_path(session_id: str) -> Path:
+    """生成安全的偏好文件路径（校验 + 路径穿越防护）。
+    确保最终路径在 MEMORY_DIR 下。
+    """
+    validate_session_id(session_id)
+    path = (MEMORY_DIR / f"{session_id}.json").resolve()
+    if not str(path).startswith(str(MEMORY_DIR.resolve())):
+        raise ValueError("非法的 session_id：路径穿越检测")
+    return path
 
 # ═════════════════════════════════════════════════════════════
 # 会话记忆（Session Memory）—— 进程内，TTL 自动过期
@@ -125,9 +164,12 @@ def load_preferences(session_id: str) -> UserPreferences:
         session_id: 会话 ID（对应用户设备/浏览器）
 
     Returns:
-        UserPreferences（文件不存在时返回默认值）
+        UserPreferences（文件不存在或 session_id 非法时返回默认值）
     """
-    path = MEMORY_DIR / f"{session_id}.json"
+    try:
+        path = _safe_memory_path(session_id)
+    except ValueError:
+        return UserPreferences(session_id=session_id)
     if not path.exists():
         return UserPreferences(session_id=session_id)
     try:
@@ -145,6 +187,7 @@ def load_preferences(session_id: str) -> UserPreferences:
 
 def save_preferences(prefs: UserPreferences) -> None:
     """将用户偏好持久化到 JSON 文件。"""
+    path = _safe_memory_path(prefs.session_id)
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     prefs.last_session = time.strftime("%Y-%m-%d %H:%M:%S")
     data = {
@@ -153,7 +196,6 @@ def save_preferences(prefs: UserPreferences) -> None:
         "risk_tolerance": prefs.risk_tolerance,
         "last_session": prefs.last_session,
     }
-    path = MEMORY_DIR / f"{prefs.session_id}.json"
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -168,6 +210,11 @@ def update_preference(session_id: str, key: str, value: str) -> str:
     Returns:
         操作结果描述文本
     """
+    try:
+        validate_session_id(session_id)
+    except ValueError as e:
+        return f"无效的 session_id：{e}"
+
     prefs = load_preferences(session_id)
     prefs.session_id = session_id
 
