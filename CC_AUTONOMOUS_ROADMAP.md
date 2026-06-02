@@ -42,14 +42,13 @@ rg --files -g '!**/.claude/**' -g '!**/.pytest_cache/**' -g '!**/__pycache__/**'
 当前建议下一步：
 
 ```text
-优先做 E1：前端 ECharts 图表增强。
+优先做 E2：综合分析报告结构化。
 ```
 
 原因：
 
-- 图表对演示效果提升最大。
-- 风险低于 LLM 接入和模型重训。
-- 能让项目更像真正的股票分析系统。
+- E1 已完成（`2199eb6` + `ab81bb9`）。
+- 图表对演示效果提升明显，E2 能让报告输出更专业。
 
 ## 2. 总路线
 
@@ -660,24 +659,29 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - 前端图表：ECharts 走势图面板（默认隐藏），自动从用户输入提取 6 位股票代码并加载图表
 - 图表功能：收盘价折线 + MA5/MA20 虚线 + 成交量柱状图 + 十字光标 + 内滚轮缩放
 - 降级设计：图表数据失败时显示错误提示（不阻塞聊天），关闭图表后聊天仍正常
+- 前端修复：/chat 400 响应处理（r.ok 检查 + d.error fallback），session_id 被污染时不再显示 undefined
 - 测试覆盖：4 项新测试（正常返回/非法代码/无数据503/days参数传递），全部 mock 网络
-- README 更新：API 路由表 + 图表功能说明 + 触发示例 + CDN 依赖说明
+- README 更新：API 路由表 + 图表功能章节 + 触发示例 + CDN 依赖说明
+- 项目历程：REVIEW_HISTORY.md 新增里程碑 M1 完整记录
 - 前端仍使用 textContent 渲染聊天消息，图表为独立 ECharts 实例，不引入 HTML 注入风险
 验证结果：
-- pytest -q: 50 passed in 1.31s
-- git diff --check: 无实质错误（仅有 LF/CRLF 换行符警告）
-- git status --short: M README.md, M app.py, M templates/index.html, M tests/test_core.py, ?? CC_AUTONOMOUS_ROADMAP.md
+- pytest -q: 50 passed in 1.34s
+- git diff --check: 无实质错误
+- git status --short: clean（所有文件已提交）
 - 6 条核心演示链路未受影响
 代码管理：
-- commit: 待提交（推荐信息：feat: add stock history chart and frontend ECharts）
+- commit 1: `2199eb6` feat: add stock history chart and frontend ECharts（5 files, +1000/-10）
+- commit 2: `ab81bb9` docs: record E1 milestone in REVIEW_HISTORY.md（+108 行）
+- CC_AUTONOMOUS_ROADMAP.md 已纳入跟踪
 剩余风险：
 - ECharts 依赖 jsDelivr CDN，离线环境下图表不显示（已做降级提示）。如需离线可用，可下载 echarts.min.js 到 static/ 目录
 - 图表仅展示了收盘价/均线/成交量，未包含 K 线蜡烛图（后续可扩展）
 下一步：
-- 推荐按路线图进入 E2：综合分析报告结构化
+- E2：综合分析报告结构化
 涉及文件：
 - app.py（+37 行：stock_history 路由）
-- templates/index.html（+183 行：ECharts CDN + CSS + HTML 面板 + JS 逻辑）
+- templates/index.html（+188/-10 行：ECharts CDN + CSS + HTML 面板 + JS 逻辑 + 错误处理修复）
 - tests/test_core.py（+66 行：4 项 API 测试）
 - README.md（+23 行：API 路由 + 图表功能章节）
-- CC_AUTONOMOUS_ROADMAP.md（进度记录）
+- REVIEW_HISTORY.md（+108 行：里程碑 M1）
+- CC_AUTONOMOUS_ROADMAP.md（路线图 + 进度记录）
