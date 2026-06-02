@@ -300,3 +300,69 @@ def test_search_knowledge_reports_unavailable_when_rag_init_fails(monkeypatch):
     from core.tools import _tool_search_knowledge
     result = _tool_search_knowledge("什么是金叉")
     assert "不可用" in result or "尚未初始化" in result
+
+
+# ═════════════════════════════════════════════════════════════
+# 股票历史K线 API 测试
+# ═════════════════════════════════════════════════════════════
+
+def test_stock_history_api_returns_200(client, monkeypatch):
+    """GET /api/stock/<code>/history 正常返回 K 线数据。"""
+    from core.market_data import KlineBar
+    mock_bars = [
+        KlineBar(date="2026-01-02", open=100, high=105, low=98, close=102, volume=10000),
+        KlineBar(date="2026-01-03", open=102, high=108, low=101, close=107, volume=12000),
+    ]
+    monkeypatch.setattr("core.market_data.get_daily_kline", lambda code, days=90: mock_bars)
+
+    resp = client.get("/api/stock/600519/history?days=90")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["code"] == "600519"
+    assert data["days"] == 90
+    assert len(data["items"]) == 2
+    assert data["items"][0]["close"] == 102
+    assert data["items"][0]["volume"] == 10000
+
+
+def test_stock_history_api_invalid_code_returns_400(client):
+    """非法股票代码返回 400。"""
+    # 含字母
+    resp = client.get("/api/stock/abc123/history")
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+    # 长度不足（5位）
+    resp = client.get("/api/stock/12345/history")
+    assert resp.status_code == 400
+
+    # 含中文字符
+    resp = client.get("/api/stock/60051九/history")
+    assert resp.status_code == 400
+
+
+def test_stock_history_api_no_data_returns_503(client, monkeypatch):
+    """K 线数据为空时返回 503。"""
+    monkeypatch.setattr("core.market_data.get_daily_kline", lambda code, days=90: [])
+
+    resp = client.get("/api/stock/600519/history")
+    assert resp.status_code == 503
+    data = resp.get_json()
+    assert "error" in data
+    assert "不可用" in data["error"]
+
+
+def test_stock_history_api_respects_days_param(client, monkeypatch):
+    """days 参数正确传递给 get_daily_kline。"""
+    captured_days = []
+
+    def fake_kline(code, days=90):
+        captured_days.append(days)
+        from core.market_data import KlineBar
+        return [KlineBar(date="2026-01-02", open=100, high=105, low=98, close=102, volume=10000)]
+
+    monkeypatch.setattr("core.market_data.get_daily_kline", fake_kline)
+
+    resp = client.get("/api/stock/000001/history?days=30")
+    assert resp.status_code == 200
+    assert captured_days[0] == 30

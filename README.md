@@ -67,6 +67,7 @@ templates/index.html (前端 Chat UI)
 | GET | `/memory?session_id=xxx` | 读取用户偏好 |
 | POST | `/memory` | 更新偏好 `{session_id, key, value}` |
 | GET | `/health` | 健康检查 (模型/LLM/RAG) |
+| GET | `/api/stock/<code>/history?days=90` | 历史K线 `{code, days, items[{date,open,high,low,close,volume}]}` |
 
 ## 使用示例
 
@@ -94,6 +95,28 @@ templates/index.html (前端 Chat UI)
 "什么是金叉死叉"          -> RAG 知识库检索
 "关注 600519"             -> 加入自选列表
 ```
+
+## 图表功能 (E1)
+
+前端集成了 ECharts 走势图，输入包含 6 位股票代码的内容时自动展示：
+
+- **收盘价**走势曲线
+- **MA5** / **MA20** 移动平均线（虚线）
+- **成交量**柱状图
+- 支持鼠标缩放、十字光标、数据提示
+
+图表区域位于状态栏下方，不影响聊天消息流。数据加载失败时显示简短错误提示，关闭后聊天仍正常工作。
+
+**触发图表的输入示例：**
+
+```
+查询 600519 行情
+分析 600519 技术指标
+600519 近90天走势
+评估 600519 风险
+```
+
+> ECharts 通过 CDN 加载（jsDelivr），首次使用需网络连接。如 CDN 不可用，图表区域显示降级提示，不影响聊天。
 
 ## 项目结构
 

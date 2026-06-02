@@ -6,6 +6,7 @@
     - 与后端 /chat 接口通信
     - 支持 session_id 持久化（localStorage）
     - 顶部状态栏：模型/LLM/RAG 状态指示
+    - ECharts 走势图（K线/均线/成交量）
     - 快捷提问按钮
     - 加载动画 + 自适应滚动
 -->
@@ -14,6 +15,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>股票分析助手</title>
+  <!-- ECharts CDN（图表可视化） -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <style>
     /* ── 全局重置 ── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,6 +36,21 @@
     .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
     .status.ok { background: #d1fae5; color: #065f46; }
     .status.off { background: #fee2e2; color: #991b1b; }
+
+    /* ── 图表区域 ── */
+    .chart-panel {
+      max-width: 800px; width: 100%; margin: 0 auto; display: none;
+      background: #fff; border-bottom: 1px solid #e5e7eb; padding: 8px 16px 4px;
+    }
+    .chart-panel.visible { display: block; }
+    .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .chart-header span { font-size: 13px; font-weight: 600; color: #374151; }
+    .chart-header button {
+      background: none; border: 0; font-size: 18px; cursor: pointer; color: #9ca3af; padding: 0 4px;
+    }
+    .chart-header button:hover { color: #374151; }
+    .chart-box { width: 100%; height: 320px; }
+    .chart-error { font-size: 12px; color: #991b1b; padding: 8px 0; text-align: center; }
 
     /* ── 聊天区域 ── */
     .chat-container {
@@ -106,6 +124,16 @@
     <span id="ragStatus" class="status off">RAG</span>
   </div>
 
+  <!-- ── ECharts 图表面板（默认隐藏，检测到股票代码后显示） ── -->
+  <div class="chart-panel" id="chartPanel">
+    <div class="chart-header">
+      <span id="chartTitle">走势图</span>
+      <button onclick="hideChart()" title="关闭图表">&times;</button>
+    </div>
+    <div class="chart-box" id="chartBox"></div>
+    <div class="chart-error" id="chartError" style="display:none"></div>
+  </div>
+
   <!-- ── 快捷提问按钮 ── -->
   <div class="suggestions" id="suggestions">
     <button onclick="send('分析 000001 的技术指标')">技术指标</button>
@@ -135,7 +163,6 @@
 
     // ═══════════════════════════════════════════════════════
     // Session ID 管理（localStorage 持久化）
-    // 确保同一设备/浏览器始终使用同一会话 ID
     // ═══════════════════════════════════════════════════════
     let sessionId = localStorage.getItem('stock_session_id');
     if (!sessionId) {
@@ -161,7 +188,6 @@
      * 向聊天区域添加一条消息
      * @param {string} role - "user" | "assistant"
      * @param {string} text - 消息文本
-     * @returns {HTMLElement} 消息元素
      */
     function addMsg(role, text) {
       const div = document.createElement('div');
@@ -216,12 +242,12 @@
 
     /**
      * 发送消息到后端
-     * @param {string} [query] - 可选，预填的查询文本（快捷按钮用）
+     * @param {string} [query] - 可选，预填的查询文本
      */
     function send(query) {
       const text = query || input.value.trim();
       if (!text) return;
-      if (!query) input.value = '';  // 清空输入框
+      if (!query) input.value = '';
 
       addMsg('user', text);
       addLoading();
@@ -232,18 +258,173 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({query: text, session_id: sessionId})
       })
-      .then(r => r.json())
-      .then(d => {
-        removeLoading();
-        addMsg('assistant', d.reply);
-        sendBtn.disabled = false;
-        input.focus();  // 自动聚焦输入框
+      .then(function(r) {
+        // 先检查 HTTP 状态码，非 200 时解析 error 字段
+        if (!r.ok) {
+          return r.json().then(function(d) {
+            throw new Error(d.error || '请求失败（HTTP ' + r.status + '）');
+          });
+        }
+        return r.json();
       })
-      .catch(e => {
+      .then(function(d) {
         removeLoading();
-        addMsg('assistant', '网络请求失败: ' + e.message);
+        addMsg('assistant', d.reply || d.error || '请求失败');
+        sendBtn.disabled = false;
+        input.focus();
+        tryLoadChart(text);  // 检测股票代码并加载图表
+      })
+      .catch(function(e) {
+        removeLoading();
+        addMsg('assistant', e.message || '网络请求失败');
         sendBtn.disabled = false;
       });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // ECharts 图表相关逻辑
+    // ═══════════════════════════════════════════════════════
+
+    let chartInstance = null;  // ECharts 实例引用
+
+    /** 从文本中提取 6 位股票代码 */
+    function extractStockCode(text) {
+      const m = text.match(/\b(\d{6})\b/);
+      return m ? m[1] : null;
+    }
+
+    /** 计算简单移动平均线（SMA） */
+    function calcMA(data, period) {
+      const result = [];
+      for (let i = 0; i < data.length; i++) {
+        if (i < period - 1) {
+          result.push(null);
+        } else {
+          let sum = 0;
+          for (let j = i - period + 1; j <= i; j++) sum += data[j];
+          result.push(+(sum / period).toFixed(2));
+        }
+      }
+      return result;
+    }
+
+    /** 尝试加载图表数据（从用户输入提取股票代码） */
+    function tryLoadChart(text) {
+      const code = extractStockCode(text);
+      if (!code) return;
+
+      fetch('/api/stock/' + code + '/history?days=90')
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            showChartError(data.error);
+            return;
+          }
+          renderChart(code, data.items);
+        })
+        .catch(function() {
+          showChartError('图表数据加载失败');
+        });
+    }
+
+    /** 渲染 ECharts 走势图（收盘价 + MA5 + MA20 + 成交量） */
+    function renderChart(code, items) {
+      var panel = document.getElementById('chartPanel');
+      var box = document.getElementById('chartBox');
+      var errEl = document.getElementById('chartError');
+      var titleEl = document.getElementById('chartTitle');
+
+      // 确保画布可见，隐藏错误提示
+      errEl.style.display = 'none';
+      box.style.display = '';
+      panel.classList.add('visible');
+
+      // 提取数据序列
+      var dates = items.map(function(i) { return i.date; });
+      var closes = items.map(function(i) { return i.close; });
+      var volumes = items.map(function(i) { return i.volume; });
+      var ma5 = calcMA(closes, 5);
+      var ma20 = calcMA(closes, 20);
+
+      titleEl.textContent = code + ' 近' + items.length + '日走势';
+
+      // 初始化或复用 ECharts 实例
+      if (!chartInstance) {
+        chartInstance = echarts.init(box);
+        window.addEventListener('resize', function() {
+          if (chartInstance) chartInstance.resize();
+        });
+      }
+
+      chartInstance.setOption({
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'cross' }
+        },
+        legend: {
+          data: ['收盘价', 'MA5', 'MA20', '成交量'],
+          top: 0,
+          textStyle: { fontSize: 11 }
+        },
+        grid: [
+          { left: 60, right: 20, top: 30, height: '55%' },
+          { left: 60, right: 20, top: '72%', height: '20%' }
+        ],
+        xAxis: [
+          { type: 'category', data: dates, gridIndex: 0, axisLabel: { fontSize: 10 } },
+          { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false } }
+        ],
+        yAxis: [
+          { type: 'value', gridIndex: 0, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
+          { type: 'value', gridIndex: 1, axisLabel: { fontSize: 10, formatter: function(v) { return v >= 1e6 ? (v / 1e6).toFixed(0) + 'M' : v >= 1e4 ? (v / 1e4).toFixed(0) + '万' : v; } } }
+        ],
+        series: [
+          {
+            name: '收盘价', type: 'line', data: closes,
+            lineStyle: { color: '#2563eb', width: 1.5 },
+            itemStyle: { color: '#2563eb' },
+            symbol: 'none', xAxisIndex: 0, yAxisIndex: 0
+          },
+          {
+            name: 'MA5', type: 'line', data: ma5,
+            lineStyle: { color: '#f59e0b', width: 1, type: 'dashed' },
+            symbol: 'none', xAxisIndex: 0, yAxisIndex: 0
+          },
+          {
+            name: 'MA20', type: 'line', data: ma20,
+            lineStyle: { color: '#10b981', width: 1, type: 'dashed' },
+            symbol: 'none', xAxisIndex: 0, yAxisIndex: 0
+          },
+          {
+            name: '成交量', type: 'bar', data: volumes,
+            itemStyle: { color: '#93c5fd' },
+            xAxisIndex: 1, yAxisIndex: 1
+          }
+        ],
+        dataZoom: [
+          { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 }
+        ]
+      }, true);  // notMerge=true，每次完整重绘
+    }
+
+    /** 显示图表加载错误提示 */
+    function showChartError(msg) {
+      var panel = document.getElementById('chartPanel');
+      var errEl = document.getElementById('chartError');
+      panel.classList.add('visible');
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+      // 销毁旧实例并隐藏画布
+      if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
+      document.getElementById('chartBox').style.display = 'none';
+    }
+
+    /** 关闭图表面板 */
+    function hideChart() {
+      document.getElementById('chartPanel').classList.remove('visible');
+      document.getElementById('chartBox').style.display = '';
+      document.getElementById('chartError').style.display = 'none';
+      if (chartInstance) { chartInstance.dispose(); chartInstance = null; }
     }
   </script>
 </body>

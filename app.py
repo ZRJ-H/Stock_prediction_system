@@ -9,6 +9,7 @@ Flask 主应用（Stock Prediction Web App）
   GET  /memory      → 读取用户偏好（需 ?session_id=xxx）
   POST /memory      → 更新用户偏好（接收 {session_id, key, value}）
   GET  /health      → 健康检查（模型/LLM/RAG 状态）
+  GET  /api/stock/<code>/history?days=90 → 股票历史K线数据
 
 启动方式：
   python app.py     → 监听 http://127.0.0.1:5000
@@ -161,6 +162,42 @@ def health():
         "model_loaded": model_service.has_trained_model(),
         "llm_available": bool(agent.llm.api_key),
         "rag_ready": INDEX_PATH.exists(),
+    })
+
+
+@app.route("/api/stock/<code>/history", methods=["GET"])
+def stock_history(code):
+    """返回股票历史日K线数据，供前端 ECharts 图表使用。
+
+    URL Path:
+        code: 6 位股票代码
+
+    Query Params:
+        days: 获取天数（默认 90，范围 1-365）
+
+    Response（JSON）:
+        正常：{"code": "600519", "days": 90, "items": [{date, open, high, low, close, volume}, ...]}
+        非法代码：400 {"error": "股票代码格式无效..."}
+        无数据：  503 {"error": "K线数据暂不可用"}
+    """
+    import re
+    from core.market_data import get_daily_kline
+
+    # 校验股票代码格式：必须是 6 位数字
+    if not re.fullmatch(r"\d{6}", code):
+        return jsonify({"error": "股票代码格式无效，请输入6位数字代码"}), 400
+
+    days = request.args.get("days", 90, type=int)
+    days = max(1, min(days, 365))  # 限制 1-365 天
+
+    bars = get_daily_kline(code, days=days)
+    if not bars:
+        return jsonify({"error": "K线数据暂不可用"}), 503
+
+    return jsonify({
+        "code": code,
+        "days": days,
+        "items": [b.to_dict() for b in bars],
     })
 
 
