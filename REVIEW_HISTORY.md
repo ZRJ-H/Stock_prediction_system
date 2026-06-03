@@ -569,3 +569,296 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 - 当前评分权重为固定值（35/25/25/15），后续可考虑动态调整
 
 **下一步**：E3 LLM 智能模式增强
+
+---
+
+## 里程碑 M3 — 2026-06-03（E3：LLM 智能模式增强）
+
+> **提交**：`c36b81a` → `aba2f1c` — feat: improve llm assistant mode
+> **分支**：`iter3-skill-system`
+> **定位**：CC_AUTONOMOUS_ROADMAP.md 第 6 节
+> **测试**：59 passed（+5 项 E3 测试）
+
+---
+
+### 一、本阶段交付
+
+#### System Prompt 强化
+
+- **文件**：[core/agent.py](core/agent.py):39-59
+- 新增"核心约束"区块：严禁编造行情数据（价格/涨跌幅/成交量/PE/PB/财务指标）
+- 要求必须先调用工具获取真实数据，再进行分析
+- 工具调用失败时如实告知"该数据暂不可用"，不得凭空推测
+
+#### /health LLM 元信息扩展
+
+- **文件**：[app.py](app.py):160-166
+- 新增 `llm_base_url`、`llm_model` 字段（有 key 时返回配置值，无 key 时返回 null）
+- 不真实请求 LLM，仅轻量读取环境变量
+
+#### LLM 降级与工具调用测试
+
+- **文件**：[tests/test_core.py](tests/test_core.py):550-653
+- 5 项测试，全部 mock `LLMExplainer.chat()`，不访问真实外网：
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `test_llm_failure_falls_back_to_rule_mode` | chat() 返回 None → 规则模式降级 |
+| `test_llm_tool_call_flow` | mock 先返回 tool_call 再返回 text → 验证工具结果注入第二轮 messages |
+| `test_llm_not_entered_without_api_key` | 无 key 不进入 LLM 模式 |
+| `test_health_includes_llm_meta_fields` | /health 返回 llm_base_url + llm_model |
+| `test_health_llm_fields_none_without_api_key` | 无 key 时 llm_base_url/model 为 null |
+
+#### README LLM 配置扩展
+
+- DeepSeek / OpenAI / 通义千问 / Ollama 四套完整配置示例
+- 运行模式对照表（无key→规则 / 有key→LLM / 失败→降级）
+
+### 二、验收结果
+
+```text
+[x] LLM 配置文档清楚（4 种 API 示例）
+[x] LLM 失败自动降级规则模式（测试验证）
+[x] tool_call 流程正确（mock 验证工具结果注入 messages）
+[x] /health 不触发 LLM 请求
+[x] 不泄露 API key
+[x] pytest -q: 59 passed
+```
+
+---
+
+## 里程碑 M4 — 2026-06-03（E4：模型训练与回测升级）
+
+> **提交**：`b0405c0` — feat: add model training workflow
+> **分支**：`iter3-skill-system`
+> **定位**：CC_AUTONOMOUS_ROADMAP.md 第 7 节
+> **测试**：65 passed（+6 项 E4 测试）
+
+---
+
+### 一、本阶段交付
+
+#### train_model.py CLI
+
+- **文件**：[train_model.py](train_model.py)
+- `build_parser()` + `main()` 双函数架构
+- 参数：`--data` / `--model-dir` / `--epochs` / `--batch-size`
+
+#### 时间序列切分
+
+- **文件**：[core/data_pipeline.py](core/data_pipeline.py):131-148
+- 新增 `time_series_split(x, y, train_ratio=0.7, val_ratio=0.15)`：严格按时序切分，不随机打乱
+
+#### Scaler 仅在训练段拟合
+
+- **文件**：[core/model_service.py](core/model_service.py):225-345
+- `train_with_time_split()`：先时序切分原始行索引 → Scaler 仅在 `df.iloc[:train_end_row]` 上 fit → transform 全量 → 重建归一化窗口
+- 杜绝未来信息泄漏到 val/test
+
+#### 基线准确率
+
+- 训练集多数类作为固定预测策略，在测试集上评估
+- 不是全量标签的多数类占比
+
+#### 训练报告
+
+- 生成 `models/training_report.json`：backend / sample_count / window_size / train+val+test_accuracy / baseline_accuracy / 日期区间 / model_files
+- `.gitignore` 已忽略该文件
+
+#### 空切分防护
+
+- 切分后任一段为空时抛出 `ValueError` + 明确提示
+
+### 二、审查修正记录
+
+本阶段经历三轮审查修正：
+
+| 轮次 | 问题 | 修复 |
+|------|------|------|
+| 1 | Scaler 在全量 df 上 fit，泄漏未来信息 | 改为仅在训练段 fit |
+| 1 | 日期区间 double-count 窗口长度 | 修正为直接公式 `_ts(w + len(x_train) - 1)` |
+| 1 | baseline 用全量标签 | 改为训练集多数类在测试集上评估 |
+| 2 | CLI 测试重建 ArgumentParser（假阳性） | 提取 `build_parser()`，测试真实 parser |
+| 2 | backend 断言在 TF 环境下失败 | `monkeypatch.setattr("core.model_service.HAS_TF", False)` |
+| 2 | train_model.py 未跟踪 | `git add` |
+| 3 | .gitignore 未忽略 training_report.json | 追加 |
+| 3 | 小样本无空切分防护 | 新增 ValueError + tiny sample 测试 |
+
+### 三、验收结果
+
+```text
+[x] train_model.py 可运行（4 个 CLI 参数）
+[x] 时间序列切分（70/15/15）
+[x] Scaler 仅在训练段 fit
+[x] baseline 基于训练集多数类
+[x] 空切分有 ValueError 防护
+[x] pytest -q: 65 passed
+[x] models/training_report.json 已 .gitignore
+```
+
+---
+
+## 里程碑 M5 — 2026-06-03（E5：最终交付整理）
+
+> **提交**：`3d7db01` — docs: finalize project delivery materials
+> **分支**：`iter3-skill-system`
+> **定位**：CC_AUTONOMOUS_ROADMAP.md 第 8 节
+> **测试**：65 passed
+
+---
+
+### 一、本阶段交付
+
+#### DEMO_SCRIPT.md
+
+- **文件**：[DEMO_SCRIPT.md](DEMO_SCRIPT.md)
+- 10 章节完整演示脚本：环境准备 → 后端启动 → 前端访问 → 6 条核心命令 → 图表功能 → LLM 模式 → 模型训练 → FAQ 降级 → 测试验证 → 免责声明
+
+#### README 最终审查
+
+- 项目结构树补充 `train_model.py`
+- API 路由表、LLM 配置、模型训练、FAQ 与代码一致
+- baseline 描述修正为"训练集多数类在测试集上的准确率"
+
+#### 路线图同步
+
+- CC_AUTONOMOUS_ROADMAP.md 追加 E5 进度记录（记录 006）
+- 下一步建议：E6 产品化增强
+
+### 二、验收结果
+
+```text
+[x] DEMO_SCRIPT.md 含完整演示流程 + 降级说明 + 免责声明
+[x] README 审查通过（安装/启动/API/LLM/训练/FAQ 与代码一致）
+[x] pytest -q: 65 passed
+```
+
+---
+
+## 里程碑 M6 — 2026-06-03（E6：模型训练报告产品化展示）
+
+> **提交**：`dc3660c` — feat: show model training report
+> **分支**：`iter3-skill-system`
+> **定位**：CC_AUTONOMOUS_ROADMAP.md E6（新增阶段）
+> **测试**：67 passed（+2 项 E6 测试）
+
+---
+
+### 一、本阶段交付
+
+#### 训练报告 API
+
+- **文件**：[app.py](app.py):206-228
+- 路由：`GET /api/model/report`
+- 报告存在 → 200 + `{"available": true, ...完整字段}`
+- 报告不存在 → 200 + `{"available": false, "message": "尚未训练模型..."}`
+- 文件损坏 → 200 + `available=false` + 修复提示
+- 纯只读，不触发训练
+
+#### 前端报告面板
+
+- **文件**：[templates/index.html](templates/index.html)
+- 页面加载时自动拉取 `/api/model/report`
+- 展示 10 个字段：后端/样本数/窗口/训练准确率/验证准确率/测试准确率/基线准确率/三个日期区间
+- 报告不存在时显示"尚未训练模型"及训练命令指引
+- 支持关闭按钮，不影响聊天和图表
+- 使用 `createElement` + `textContent`，无 `innerHTML`
+
+#### 测试
+
+- `test_model_report_available_when_file_exists`：mock 报告文件 → 200 + available=true + 字段完整性
+- `test_model_report_unavailable_when_no_file`：空 tmp_path → available=false + 引导文案
+- 两个测试均 monkeypatch `app.BASE_DIR`，不受本地文件影响
+
+### 二、验收结果
+
+```text
+[x] GET /api/model/report 可用（报告存在/不存在已测试，损坏文件路径已实现）
+[x] 前端自动加载并展示报告面板
+[x] 报告不存在时显示引导文案
+[x] 不影响聊天和图表功能
+[x] 前端使用 createElement + textContent（无 XSS 风险）
+[x] 测试 monkeypatch 隔离，不依赖本地文件
+[x] pytest -q: 67 passed
+```
+
+---
+
+## 里程碑 M7 — 2026-06-03（E7：部署交付增强）
+
+> **提交**：`924eef4` — chore: add docker deployment setup
+> **分支**：`iter3-skill-system`
+> **定位**：CC_AUTONOMOUS_ROADMAP.md E7（记录 008）
+> **测试**：67 passed
+
+---
+
+### 一、本阶段交付
+
+#### 轻量基础依赖
+
+- **文件**：[requirements.txt](requirements.txt)
+- 保留 Flask、NumPy、pandas、requests、scikit-learn、joblib、pytest 等基础运行/测试依赖
+- 移除 TensorFlow、AKShare、sentence-transformers、faiss-cpu 等重依赖，避免基础部署过慢或失败
+
+#### 可选重依赖拆分
+
+- **文件**：[requirements-optional.txt](requirements-optional.txt)
+- 集中管理 `tensorflow`、`akshare`、`sentence-transformers`、`faiss-cpu`
+- 对应功能：CNN 训练、AKShare 财务/全量数据、RAG 知识库向量检索
+
+#### Docker 部署
+
+- **文件**：[Dockerfile](Dockerfile)、[.dockerignore](.dockerignore)
+- 基于 `python:3.11-slim` 构建轻量镜像
+- 默认安装基础依赖，不安装可选重依赖
+- `.dockerignore` 排除 Git、缓存、模型权重、训练报告、RAG 索引等运行产物
+
+#### 容器监听配置
+
+- **文件**：[app.py](app.py):234-238
+- 启动 host/port 改为环境变量：
+  - 本地默认：`HOST=127.0.0.1`、`PORT=5000`
+  - Docker 默认：`HOST=0.0.0.0`、`PORT=5000`
+
+#### 文档与演示脚本
+
+- **文件**：[README.md](README.md)、[DEMO_SCRIPT.md](DEMO_SCRIPT.md)
+- README 增加 Docker 部署命令和运行产物说明
+- DEMO_SCRIPT 增加 Docker 部署演示
+- 测试预期同步为 `67 passed`
+
+### 二、验收结果
+
+```text
+[x] requirements.txt 轻量化
+[x] requirements-optional.txt 拆分可选重依赖
+[x] Dockerfile 可表达基础部署流程
+[x] Docker 容器内监听 0.0.0.0:5000
+[x] README/DEMO_SCRIPT 部署说明同步
+[x] pytest -q: 67 passed
+[x] E7 文件路径限定 git diff --check 无实质错误
+```
+
+### 三、剩余风险
+
+- Docker 镜像未在本环境实际 build 验证（受本机 Docker/镜像网络可用性影响）
+- 容器默认不安装 TensorFlow/RAG/AKShare 重依赖，相关功能依赖项目既有降级策略
+
+---
+
+## 项目历程总览
+
+| 里程碑 | 提交 | 日期 | 测试数 | 核心交付 |
+|--------|------|------|--------|----------|
+| Review #1 | `01f15a1` | 05-27 | 20 | 安全修复（XSS/traceback/session） |
+| 迭代补充 | `51ab352` → `66d2866` | 05-27 ~ 06-02 | 20→46 | Skill系统 + 交付修补（A/B/C/D四阶段） |
+| M1 (E1) | `2199eb6` | 06-02 | 50 | 前端 ECharts 走势图 |
+| M2 (E2) | `7c8361a` | 06-02 | 54 | 综合分析 7 章节结构化报告 |
+| M3 (E3) | `c36b81a` | 06-03 | 59 | LLM 智能模式 + System Prompt 反编造 |
+| M4 (E4) | `b0405c0` | 06-03 | 65 | 模型训练 CLI + 时间序列切分 |
+| M5 (E5) | `3d7db01` | 06-03 | 65 | DEMO_SCRIPT.md + README 审查 |
+| M6 (E6) | `dc3660c` | 06-03 | 67 | 训练报告 API + 前端面板 |
+| M7 (E7) | `924eef4` | 06-03 | 67 | Docker 部署 + 依赖拆分 |
+
+> **当前状态**：67 个测试全部通过，6 条核心演示链路可用，LLM/模型/RAG 均可优雅降级；项目已具备 README、DEMO_SCRIPT、Docker 基础部署和清晰依赖边界，可演示、可验收、可交接。
