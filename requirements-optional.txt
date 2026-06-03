@@ -1,0 +1,4 @@
+tensorflow
+akshare
+sentence-transformers
+faiss-cpu

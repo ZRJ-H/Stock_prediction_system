@@ -1,0 +1,12 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+.cache
+.claude
+models/*.keras
+models/*.joblib
+models/meta.json
+models/scaler.json
+models/training_report.json
+data/knowledge_index.json

@@ -13,7 +13,7 @@ Flask 主应用（Stock Prediction Web App）
   GET  /api/model/report                → 模型训练报告（只读，不触发训练）
 
 启动方式：
-  python app.py     → 监听 http://127.0.0.1:5000
+  python app.py     → 默认监听 http://127.0.0.1:5000
 """
 
 from __future__ import annotations
@@ -233,4 +233,6 @@ def model_report():
 if __name__ == "__main__":
     # debug 模式由 FLASK_DEBUG 环境变量控制（默认关闭）
     is_debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
-    app.run(host="127.0.0.1", port=5000, debug=is_debug)
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host=host, port=port, debug=is_debug)

@@ -758,6 +758,41 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - README.md（LLM 配置章节扩展：DeepSeek/OpenAI/Qwen/Ollama）
 - CC_AUTONOMOUS_ROADMAP.md（进度记录）
 
+### 记录 008
+
+日期：2026-06-03
+执行人：Codex
+阶段：E7 — 部署交付增强
+本次目标：整理基础/可选依赖，新增轻量 Docker 部署，并补充 README/演示脚本部署说明
+已完成：
+- requirements.txt 轻量化：保留 Flask、NumPy、pandas、requests、scikit-learn、joblib、pytest 等基础运行/测试依赖
+- 新增 requirements-optional.txt：集中 TensorFlow、AKShare、sentence-transformers、faiss-cpu 等可选重依赖
+- 新增 Dockerfile：基于 python:3.11-slim，安装基础依赖，默认容器监听 HOST=0.0.0.0、PORT=5000
+- 新增 .dockerignore：排除 Git、缓存、模型权重、训练报告、RAG 索引等运行产物
+- app.py 启动 host/port 改为环境变量控制，本地默认仍为 127.0.0.1:5000
+- README 增加 Docker 部署说明、项目结构补充 Dockerfile/依赖文件
+- DEMO_SCRIPT.md 增加 Docker 部署演示，测试预期更新为 67 passed
+验证结果：
+- pytest -q: 67 passed in 1.75s
+- git diff --check（E7 文件路径限定）: 无实质错误（仅 Windows CRLF 提示）
+- git diff --check（全量）: REVIEW_HISTORY.md 存在本阶段前遗留尾随空格，未纳入 E7 修改
+代码管理：
+- commit: 待提交（chore: add docker deployment setup）
+剩余风险：
+- 未实际构建 Docker 镜像验证（本环境网络/镜像可用性未确认）
+- Docker 镜像默认不安装可选重依赖，CNN/RAG/AKShare 需要额外扩展安装
+下一步：
+- E8（可选）：CI/CD 与自动化验收（pytest + diff check + Docker build smoke test）
+涉及文件：
+- Dockerfile（新建，轻量部署镜像）
+- .dockerignore（新建，排除运行产物）
+- requirements.txt（基础依赖）
+- requirements-optional.txt（可选重依赖）
+- app.py（HOST/PORT 环境变量）
+- README.md（Docker 部署说明）
+- DEMO_SCRIPT.md（Docker 演示）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）
+
 ### 记录 007
 
 日期：2026-06-03

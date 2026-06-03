@@ -1,10 +1,7 @@
 flask
-pandas
 numpy
-scikit-learn
-tensorflow
-joblib
-akshare
+pandas
 requests
-sentence-transformers
-faiss-cpu
+scikit-learn
+joblib
+pytest

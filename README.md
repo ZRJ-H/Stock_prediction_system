@@ -9,12 +9,12 @@
 ## 快速开始
 
 ```bash
-pip install flask numpy pandas requests scikit-learn sentence-transformers
+pip install -r requirements.txt
 python app.py
 # 访问 http://127.0.0.1:5000
 ```
 
-**可选依赖**：`tensorflow`（CNN 模型）、`akshare`（更多数据源），设置 `USE_AKSHARE=1` 启用。
+**可选依赖**：运行 `pip install -r requirements-optional.txt` 可安装 `tensorflow`（CNN 模型）、`akshare`（更多数据源）、`sentence-transformers`（RAG 知识库）。设置 `USE_AKSHARE=1` 启用 AKShare。
 
 ## LLM 配置（可选）
 
@@ -167,12 +167,26 @@ templates/index.html (前端 Chat UI)
 
 > ECharts 通过 CDN 加载（jsDelivr），首次使用需网络连接。如 CDN 不可用，图表区域显示降级提示，不影响聊天。
 
+## Docker 部署
+
+```bash
+docker build -t stock-prediction-system .
+docker run --rm -p 5000:5000 stock-prediction-system
+```
+
+容器默认安装轻量基础依赖，不包含 TensorFlow、AKShare、sentence-transformers 等可选重依赖。需要 CNN/RAG/AKShare 时，建议在本地环境安装 `requirements-optional.txt`，或基于本镜像扩展安装。
+
+运行产物不随镜像提交：`models/*.keras`、`models/*.joblib`、`models/meta.json`、`models/scaler.json`、`models/training_report.json`、`data/knowledge_index.json`。
+
 ## 项目结构
 
 ```text
 Stock_prediction_system/
+├── Dockerfile                  # 轻量部署镜像
 ├── app.py                      # Flask 入口
 ├── train_model.py              # 模型训练 CLI
+├── requirements.txt            # 基础依赖
+├── requirements-optional.txt   # 可选重依赖
 ├── core/
 │   ├── agent.py                # Agent 调度层 (LLM/规则双模式)
 │   ├── tools.py                # 工具注册/分组/执行 (18个)

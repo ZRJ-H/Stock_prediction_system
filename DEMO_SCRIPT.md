@@ -8,12 +8,10 @@
 
 ```bash
 # 基础依赖（必装）
-pip install flask numpy pandas requests scikit-learn
+pip install -r requirements.txt
 
 # 可选依赖
-pip install sentence-transformers   # RAG 知识库
-pip install tensorflow               # CNN 模型（不装则自动降级 MLP）
-pip install akshare                  # 更多数据源
+pip install -r requirements-optional.txt
 
 # 若使用 Ollama 本地 LLM（免费）
 ollama pull qwen2.5:7b
@@ -47,13 +45,24 @@ python app.py
 
 ---
 
-## 3. 前端访问
+## 3. Docker 部署演示
+
+```bash
+docker build -t stock-prediction-system .
+docker run --rm -p 5000:5000 stock-prediction-system
+```
+
+访问 `http://127.0.0.1:5000`。容器默认安装基础依赖，不包含 TensorFlow、AKShare、sentence-transformers 等可选重依赖；相关功能会按项目降级策略处理。
+
+---
+
+## 4. 前端访问
 
 浏览器打开 `http://127.0.0.1:5000`，进入聊天界面。
 
 ---
 
-## 4. 核心演示 — 6 条命令链路
+## 5. 核心演示 — 6 条命令链路
 
 在聊天输入框中依次输入以下内容：
 
@@ -129,7 +138,7 @@ python app.py
 
 ---
 
-## 5. 图表功能演示 (E1)
+## 6. 图表功能演示 (E1)
 
 输入包含 6 位股票代码的内容时，ECharts 图表自动加载：
 
@@ -147,7 +156,7 @@ python app.py
 
 ---
 
-## 6. LLM 智能模式演示 (E3)
+## 7. LLM 智能模式演示 (E3)
 
 ### 6.1 启用 LLM
 
@@ -181,7 +190,7 @@ $env:OPENAI_MODEL="qwen2.5:7b"
 
 ---
 
-## 7. 模型训练演示 (E4)
+## 8. 模型训练演示 (E4/E6)
 
 ### 7.1 查看帮助
 
@@ -233,7 +242,7 @@ cat models/training_report.json
 
 ---
 
-## 8. 常见问题与降级说明
+## 9. 常见问题与降级说明
 
 ### Q: 无网络时行情/K线失败怎么办？
 
@@ -261,15 +270,15 @@ cat models/training_report.json
 
 ---
 
-## 9. 测试验证
+## 10. 测试验证
 
 ```bash
 pytest -q
-# 预期：65 passed
+# 预期：67 passed
 ```
 
 ---
 
-## 10. 免责声明
+## 11. 免责声明
 
 本系统仅供学习和研究使用。所有分析结果（包括技术指标、风险评估、模型预测、LLM 解读）均不构成投资建议。预测模型仅基于历史价格特征，不包含基本面、宏观、情绪等因子，回测结果不代表未来表现。股市有风险，投资需谨慎。
