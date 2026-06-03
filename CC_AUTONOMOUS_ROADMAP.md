@@ -758,6 +758,43 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - README.md（LLM 配置章节扩展：DeepSeek/OpenAI/Qwen/Ollama）
 - CC_AUTONOMOUS_ROADMAP.md（进度记录）
 
+### 记录 006
+
+日期：2026-06-03
+执行人：Claude Code (DeepSeek V4 Pro)
+阶段：E5 — 最终交付整理
+本次目标：项目交付收口：DEMO_SCRIPT.md + README 审查 + 最终验证
+已完成：
+- 新增 DEMO_SCRIPT.md：完整演示脚本，含 10 个章节：
+  1. 环境准备（基础 + 可选依赖）
+  2. 后端启动 + /health 验证
+  3. 前端访问
+  4. 6 条核心演示链路（含预期输出 + 降级行为）
+  5. 图表功能演示（ECharts 走势图）
+  6. LLM 智能模式演示（启用/验证/降级）
+  7. 模型训练演示（--help → 训练 → 查看报告 → 验证预测）
+  8. 常见问题与降级说明（6 条 FAQ：无网络/无key/无TF/无sentence-transformers/RAG构建/简易版预测）
+  9. 测试验证（pytest -q）
+  10. 免责声明
+- README 最终审查：项目结构树补充 train_model.py（E4 新增的顶层文件）
+- 验收：安装/启动/API/LLM/模型训练/FAQ 与当前代码一致，无其他不一致
+验证结果：
+- pytest -q: 65 passed
+- git diff --check: 无实质错误（仅 Windows CRLF 提示）
+- python train_model.py --help: CLI 可用
+- git status --short: 2 modified + DEMO_SCRIPT.md new（提交前）
+代码管理：
+- commit: 待提交（docs: finalize project delivery materials）
+剩余风险：
+- ECharts 依赖 jsDelivr CDN，离线环境图表不显示（已做降级提示）
+- 无自动化端到端 UI 测试（需 Selenium/Playwright 框架）
+下一步：
+- E6（可选）：产品化增强 — 训练结果前端展示、模型版本管理、Docker 部署说明、CI/CD
+涉及文件：
+- DEMO_SCRIPT.md（新建，完整演示脚本）
+- README.md（项目结构树补充 train_model.py）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）
+
 ### 记录 005
 
 日期：2026-06-03

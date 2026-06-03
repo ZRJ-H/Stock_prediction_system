@@ -171,6 +171,7 @@ templates/index.html (前端 Chat UI)
 ```text
 Stock_prediction_system/
 ├── app.py                      # Flask 入口
+├── train_model.py              # 模型训练 CLI
 ├── core/
 │   ├── agent.py                # Agent 调度层 (LLM/规则双模式)
 │   ├── tools.py                # 工具注册/分组/执行 (18个)
