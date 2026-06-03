@@ -10,6 +10,7 @@ Flask 主应用（Stock Prediction Web App）
   POST /memory      → 更新用户偏好（接收 {session_id, key, value}）
   GET  /health      → 健康检查（模型/LLM/RAG 状态）
   GET  /api/stock/<code>/history?days=90 → 股票历史K线数据
+  GET  /api/model/report                → 模型训练报告（只读，不触发训练）
 
 启动方式：
   python app.py     → 监听 http://127.0.0.1:5000
@@ -201,6 +202,32 @@ def stock_history(code):
         "days": days,
         "items": [b.to_dict() for b in bars],
     })
+
+
+@app.route("/api/model/report", methods=["GET"])
+def model_report():
+    """返回模型训练报告（不触发训练，仅读取已有文件）。
+
+    Response（JSON）:
+        报告存在 → 200 {"available": true, ...report fields}
+        报告不存在 → 200 {"available": false, "message": "尚未训练模型..."}
+    """
+    import json as _json
+    report_path = BASE_DIR / "models" / "training_report.json"
+    if not report_path.exists():
+        return jsonify({
+            "available": False,
+            "message": "尚未训练模型。运行 python train_model.py --data dataset/tt.csv --model-dir models 即可。",
+        })
+    try:
+        report = _json.loads(report_path.read_text(encoding="utf-8"))
+    except _json.JSONDecodeError:
+        return jsonify({
+            "available": False,
+            "message": "训练报告文件损坏，请重新运行 python train_model.py。",
+        })
+    report["available"] = True
+    return jsonify(report)
 
 
 if __name__ == "__main__":

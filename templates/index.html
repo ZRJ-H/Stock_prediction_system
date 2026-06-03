@@ -52,6 +52,24 @@
     .chart-box { width: 100%; height: 320px; }
     .chart-error { font-size: 12px; color: #991b1b; padding: 8px 0; text-align: center; }
 
+    /* ── 模型报告面板 ── */
+    .report-panel {
+      max-width: 800px; width: 100%; margin: 0 auto; display: none;
+      background: #fff; border-bottom: 1px solid #e5e7eb; padding: 10px 16px;
+    }
+    .report-panel.visible { display: block; }
+    .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .report-header span { font-size: 13px; font-weight: 600; color: #374151; }
+    .report-header button {
+      background: none; border: 0; font-size: 18px; cursor: pointer; color: #9ca3af; padding: 0 4px;
+    }
+    .report-header button:hover { color: #374151; }
+    .report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; font-size: 12px; }
+    .report-item { padding: 6px 10px; background: #f9fafb; border-radius: 6px; }
+    .report-item .label { color: #6b7280; }
+    .report-item .value { font-weight: 600; color: #1f2937; }
+    .report-empty { font-size: 12px; color: #9ca3af; padding: 8px 0; text-align: center; }
+
     /* ── 聊天区域 ── */
     .chat-container {
       flex: 1; overflow-y: auto; padding: 16px; max-width: 800px; width: 100%;
@@ -134,6 +152,16 @@
     <div class="chart-error" id="chartError" style="display:none"></div>
   </div>
 
+  <!-- ── 模型训练报告面板（默认隐藏，有报告时显示） ── -->
+  <div class="report-panel" id="reportPanel">
+    <div class="report-header">
+      <span>模型训练报告</span>
+      <button onclick="hideReport()" title="关闭报告">&times;</button>
+    </div>
+    <div class="report-grid" id="reportGrid"></div>
+    <div class="report-empty" id="reportEmpty" style="display:none"></div>
+  </div>
+
   <!-- ── 快捷提问按钮 ── -->
   <div class="suggestions" id="suggestions">
     <button onclick="send('分析 000001 的技术指标')">技术指标</button>
@@ -183,6 +211,73 @@
         document.getElementById('ragStatus').textContent = d.rag_ready ? '知识库OK' : '知识库未加载';
         document.getElementById('ragStatus').className = 'status ' + (d.rag_ready ? 'ok' : 'off');
       });
+
+    // ═══════════════════════════════════════════════════════
+    // 模型训练报告加载
+    // ═══════════════════════════════════════════════════════
+    fetch('/api/model/report')
+      .then(r => r.json())
+      .then(d => {
+        if (d.available) {
+          renderReport(d);
+        } else {
+          showReportEmpty(d.message);
+        }
+      })
+      .catch(function() {
+        showReportEmpty('报告加载失败');
+      });
+
+    /** 渲染完整的训练报告面板 */
+    function renderReport(r) {
+      var panel = document.getElementById('reportPanel');
+      var grid = document.getElementById('reportGrid');
+      var empty = document.getElementById('reportEmpty');
+      empty.style.display = 'none';
+      panel.classList.add('visible');
+
+      var items = [
+        {label: '后端', value: r.backend === 'tensorflow_cnn' ? 'TensorFlow CNN' : 'sklearn MLP'},
+        {label: '样本数', value: r.sample_count},
+        {label: '窗口大小', value: r.window_size + ' 日'},
+        {label: '训练准确率', value: (r.train_accuracy * 100).toFixed(1) + '%'},
+        {label: '验证准确率', value: (r.val_accuracy * 100).toFixed(1) + '%'},
+        {label: '测试准确率', value: (r.test_accuracy * 100).toFixed(1) + '%'},
+        {label: '基线准确率', value: (r.baseline_accuracy * 100).toFixed(1) + '%'},
+        {label: '训练区间', value: r.train_start + ' ~ ' + r.train_end},
+        {label: '验证区间', value: r.val_start + ' ~ ' + r.val_end},
+        {label: '测试区间', value: r.test_start + ' ~ ' + r.test_end},
+      ];
+
+      grid.textContent = '';  // 清空旧内容
+      items.forEach(function(it) {
+        var item = document.createElement('div');
+        item.className = 'report-item';
+        var label = document.createElement('div');
+        label.className = 'label';
+        label.textContent = it.label;
+        var value = document.createElement('div');
+        value.className = 'value';
+        value.textContent = it.value;
+        item.appendChild(label);
+        item.appendChild(value);
+        grid.appendChild(item);
+      });
+    }
+
+    /** 显示报告不可用提示 */
+    function showReportEmpty(msg) {
+      var panel = document.getElementById('reportPanel');
+      var empty = document.getElementById('reportEmpty');
+      panel.classList.add('visible');
+      empty.style.display = '';
+      empty.textContent = msg || '尚未训练模型。';
+    }
+
+    /** 关闭报告面板 */
+    function hideReport() {
+      document.getElementById('reportPanel').classList.remove('visible');
+    }
 
     /**
      * 向聊天区域添加一条消息

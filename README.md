@@ -116,6 +116,7 @@ templates/index.html (前端 Chat UI)
 | POST | `/memory` | 更新偏好 `{session_id, key, value}` |
 | GET | `/health` | 健康检查 (模型/LLM/RAG) |
 | GET | `/api/stock/<code>/history?days=90` | 历史K线 `{code, days, items[{date,open,high,low,close,volume}]}` |
+| GET | `/api/model/report` | 模型训练报告 `{available, backend, sample_count, ...}` |
 
 ## 使用示例
 

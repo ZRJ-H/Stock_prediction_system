@@ -789,3 +789,55 @@ def test_time_series_training_rejects_tiny_sample(monkeypatch, tmp_path):
     svc = StockCNNService(model_dir=tmp_path, window_size=60)
     with pytest.raises(ValueError, match="不能为空"):
         svc.train_with_time_split(df, epochs=1, batch_size=8)
+
+
+# ═════════════════════════════════════════════════════════════
+# E6：模型训练报告 API 测试
+# ═════════════════════════════════════════════════════════════
+
+def test_model_report_available_when_file_exists(client, tmp_path, monkeypatch):
+    """训练报告文件存在时返回 available=true 及完整字段。"""
+    import json
+    import app as app_module
+
+    fake_report = {
+        "backend": "sklearn_mlp_fallback",
+        "sample_count": 100,
+        "window_size": 60,
+        "train_accuracy": 0.62,
+        "val_accuracy": 0.58,
+        "test_accuracy": 0.55,
+        "baseline_accuracy": 0.52,
+        "train_start": "2024-01-01", "train_end": "2025-01-01",
+        "val_start": "2025-01-02", "val_end": "2025-03-01",
+        "test_start": "2025-03-02", "test_end": "2025-04-01",
+        "model_files": ["stock_mlp.joblib", "scaler.json", "meta.json"],
+    }
+    monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    (tmp_path / "models").mkdir(exist_ok=True)
+    (tmp_path / "models" / "training_report.json").write_text(
+        json.dumps(fake_report), encoding="utf-8",
+    )
+
+    resp = client.get("/api/model/report")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["available"] is True
+    assert data["backend"] == "sklearn_mlp_fallback"
+    assert data["sample_count"] == 100
+    assert data["test_accuracy"] == 0.55
+
+
+def test_model_report_unavailable_when_no_file(client, tmp_path, monkeypatch):
+    """训练报告文件不存在时返回 available=false（用空 tmp_path 隔离真实文件）。"""
+    import app as app_module
+    monkeypatch.setattr(app_module, "BASE_DIR", tmp_path)
+    # 确保 tmp_path 下没有 models/training_report.json
+    assert not (tmp_path / "models" / "training_report.json").exists()
+
+    resp = client.get("/api/model/report")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["available"] is False
+    assert "message" in data
+    assert "尚未训练" in data["message"]

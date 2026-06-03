@@ -758,6 +758,44 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - README.md（LLM 配置章节扩展：DeepSeek/OpenAI/Qwen/Ollama）
 - CC_AUTONOMOUS_ROADMAP.md（进度记录）
 
+### 记录 007
+
+日期：2026-06-03
+执行人：Claude Code (DeepSeek V4 Pro)
+阶段：E6 — 模型训练结果产品化展示
+本次目标：新增训练报告 API + 前端报告面板，让训练结果可在 Web 界面直接查看
+已完成：
+- app.py 新增 GET /api/model/report：
+  - 读取 models/training_report.json，不存在时返回 available=false + 引导提示
+  - 文件损坏时返回 available=false + 修复提示
+  - 不触发训练，仅轻量只读
+- index.html 新增模型训练报告面板：
+  - 位于图表面板与快捷按钮之间，页面加载时自动拉取报告
+  - 展示：后端/样本数/窗口大小/训练+验证+测试准确率/基线准确率/三个日期区间
+  - 报告不存在时显示"尚未训练模型"及训练命令指引
+  - 支持关闭按钮，不影响聊天和图表
+- 测试新增 2 项：
+  1. test_model_report_available_when_file_exists — 报告存在时返回 200 + available=true + 完整字段
+  2. test_model_report_unavailable_when_no_file — 报告不存在时返回 available=false + 引导文案
+- README API 路由表新增 /api/model/report
+验证结果：
+- pytest -q: 67 passed in 1.66s（+2 项 E6 测试）
+- git diff --check: 无实质错误
+- git status --short: 5 files（app.py/index.html/test_core.py/README/ROADMAP）
+代码管理：
+- commit: 待提交（feat: show model training report）
+剩余风险：
+- 报告面板刷新需手动刷新页面，未做轮询/WebSocket 自动更新
+- 前端面板样式为基础网格布局，未做移动端响应式适配
+下一步：
+- E7（可选）：Docker 部署 + CI/CD + 移动端适配
+涉及文件：
+- app.py（+13 行：/api/model/report 路由）
+- templates/index.html（+82 行：CSS + HTML + JS 报告面板）
+- tests/test_core.py（+2 项 E6 测试）
+- README.md（API 路由表新增）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）
+
 ### 记录 006
 
 日期：2026-06-03
