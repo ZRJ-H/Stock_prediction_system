@@ -460,3 +460,112 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 - E3：LLM 智能模式增强（DeepSeek/Ollama + 工具调用回退）
 - E4：模型训练与回测升级（时间序列切分 + 滚动回测）
 - E5：最终交付整理（DEMO_SCRIPT.md + README 最终版）
+
+---
+
+## 里程碑 M2 — 2026-06-02（E2：综合分析报告结构化）
+
+> **提交**：`7c8361a` — feat: standardize comprehensive analysis report  
+> **分支**：`iter3-skill-system`  
+> **定位**：CC_AUTONOMOUS_ROADMAP.md 第 5 节  
+> **测试**：54 passed in 1.53s（+4 项 E2 测试）
+
+---
+
+### 一、项目快照
+
+| 维度 | 状态 |
+|------|------|
+| 迭代 | iter3-skill-system |
+| 最近提交 | `7c8361a` |
+| 测试数量 | 54（+4 E2） |
+| 核心 6 条链路 | 全部可用（规则模式） |
+| 前端图表 | ECharts 走势图（E1） |
+| 综合分析 | **固定 7 章节结构化报告**（E2） |
+
+### 二、本阶段交付
+
+#### 综合分析报告结构
+
+修复前：输出为 `summary` + 维度子报告拼接，无固定章节，免责声明为 `format()` 尾部文本。
+
+修复后：严格顺序的固定 7 章节：
+
+```
+【结论】     → 综合评分 + 各维度简述 + 降级提示
+【技术面】   → TechnicalSkill 子报告
+【基本面】   → FundamentalSkill 子报告
+【风险】     → RiskSkill 子报告
+【舆情】     → NewsSkill 子报告
+【操作建议】 → 各维度信号辅助判断（不含确定性买卖指令）
+【免责声明】 → 固定风险提示（最后一个 ReportSection）
+```
+
+#### 关键实现细节
+
+- **文件**：[core/skills/comprehensive.py](core/skills/comprehensive.py)
+- **`_merge()`**：收集评分/信号 → 构建 `sections` 列表（严格顺序）→ 返回 `SkillReport(score=None, summary="", disclaimer="")`
+- **`_build_conclusion()`**：评分解读（偏积极/中性/偏谨慎）+ 各维度分数 + 降级维度提示
+- **`_build_suggestions()`**：按维度逐项输出信号（偏多/偏空/中性），不含"建议买入/卖出/全仓"
+- **`_fallback_report()`**：子模块失败时返回明确提示（"该维度数据当前不可用，本次分析跳过该维度"）
+- **`_extract_signal()`**：从子报告提取信号方向（bullish ≥ 60 / bearish ≤ 40 / neutral）
+- **每个子模块独立 try/except**：技术面失败不影响基本面/风险/舆情
+
+#### base.py 优化
+
+- **文件**：[core/skills/base.py](core/skills/base.py):49-51
+- 章节标题从 `--- 【X】 ---` 简化为 `【X】`
+- 结论标签从 `【综合结论】` 统一为 `【结论】`
+
+#### 测试覆盖
+
+- **文件**：[tests/test_core.py](tests/test_core.py):371-547
+
+| 测试 | 覆盖场景 |
+|------|----------|
+| `test_comprehensive_analysis_contains_fixed_sections` | 7 章节全部存在 + **严格顺序** + 均无"建议买入/卖出" |
+| `test_comprehensive_analysis_tolerates_module_failure` | 2 模块抛异常 → 报告仍完整 + 降级提示 + 免责声明 |
+| `test_comprehensive_analysis_includes_disclaimer` |【免责声明】为独立章节 + 在【操作建议】之后 |
+| `test_comprehensive_analysis_deterministic_advice_not_present` | 全部 bull 信号时不含确定性买卖指令 |
+
+### 三、变更文件清单
+
+| 文件 | 变更量 | 说明 |
+|------|--------|------|
+| `core/skills/comprehensive.py` | +272/-96 | 重写 _merge() + 4 辅助方法 + 2 个兜底方法 |
+| `core/skills/base.py` | +2/-2 | format() 章节标题简化 |
+| `tests/test_core.py` | +173 行 | 4 项综合分析测试（含章节顺序断言） |
+| `README.md` | +2/-2 | 综合分析示例 + 演示命令表 |
+| `CC_AUTONOMOUS_ROADMAP.md` | +41 行 | 进度记录 003 + 当前状态更新 |
+
+### 四、验收结果
+
+```text
+[x] 综合分析输出固定 7 章节（结论→技术→基本→风险→舆情→建议→免责）
+[x] 章节顺序可测试验证（positions 字典 + 逐对比较）
+[x] 子模块失败可降级（try/except + fallback_report）
+[x] 操作建议不含确定性买卖指令
+[x] 【免责声明】为最后一个 ReportSection（>> 综合评分 已被移除）
+[x] pytest -q: 54 passed
+[x] git diff --check 无实质错误
+```
+
+### 五、修复过程记录
+
+本阶段经历两轮修复：
+
+**第一轮（初版）**：
+- 问题：【结论】是 summary 由 format() 追加、【免责声明】不是 ReportSection、测试不校验顺序
+
+**第二轮（修正）**：
+- 【结论】改为第一个 ReportSection + `summary=""`
+- 【免责声明】改为最后一个 ReportSection + `disclaimer=""`
+- 增加章节顺序测试（positions 索引比较）
+- 发现并修复 `>> 综合评分` 后置问题：`score=None`（评分已写进【结论】）
+
+### 六、剩余风险与后续
+
+- 各子 Skill（Technical/Risk/News）报告格式尚未统一，后续可各自优化
+- 当前评分权重为固定值（35/25/25/15），后续可考虑动态调整
+
+**下一步**：E3 LLM 智能模式增强
