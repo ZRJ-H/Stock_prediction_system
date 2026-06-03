@@ -562,10 +562,11 @@ def test_llm_failure_falls_back_to_rule_mode(client, monkeypatch):
 
 
 def test_llm_tool_call_flow(client, monkeypatch):
-    """LLM 先返回 tool_call 再返回文本：验证工具调用结果进入最终回复。"""
+    """LLM 先返回 tool_call 再返回文本：验证工具执行结果正确注入第二轮 messages。"""
     from app import agent
 
     call_count = [0]
+    captured_tool_messages = []
 
     def fake_chat(messages, tools=None):
         call_count[0] += 1
@@ -578,6 +579,10 @@ def test_llm_tool_call_flow(client, monkeypatch):
                 }],
             }
         else:
+            # 第二轮：验证 messages 中包含 tool 角色的工具执行结果
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    captured_tool_messages.append(msg)
             return {"role": "assistant", "content": "根据搜索结果，平安银行(000001)是一只银行股，建议关注。"}
 
     monkeypatch.setattr(agent.llm, "api_key", "fake-key-for-test")
@@ -589,6 +594,16 @@ def test_llm_tool_call_flow(client, monkeypatch):
     assert "reply" in data
     assert "000001" in data["reply"]
     assert call_count[0] == 2  # 调用了两轮 LLM
+
+    # 核心断言：_run_llm() 正确将工具执行结果追加入 messages
+    assert len(captured_tool_messages) >= 1, (
+        "第二轮 messages 中缺少 tool role 消息，"
+        "说明 _run_llm() 未将工具结果追加到对话上下文"
+    )
+    tool_content = captured_tool_messages[0].get("content", "")
+    assert "000001" in tool_content, (
+        f"工具结果应包含搜索命中的代码 000001，实际内容: {tool_content!r}"
+    )
 
 
 def test_llm_not_entered_without_api_key(client, monkeypatch):
