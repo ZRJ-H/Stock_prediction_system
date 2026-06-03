@@ -161,6 +161,8 @@ def health():
         "status": "ok",
         "model_loaded": model_service.has_trained_model(),
         "llm_available": bool(agent.llm.api_key),
+        "llm_base_url": agent.llm.base_url if agent.llm.api_key else None,
+        "llm_model": agent.llm.model_name if agent.llm.api_key else None,
         "rag_ready": INDEX_PATH.exists(),
     })
 

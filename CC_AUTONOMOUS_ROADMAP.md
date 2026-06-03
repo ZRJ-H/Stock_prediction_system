@@ -723,3 +723,37 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - tests/test_core.py（+173 行：4 项综合分析测试，含章节顺序断言）
 - README.md（综合分析示例 + 演示命令表更新）
 - CC_AUTONOMOUS_ROADMAP.md（进度记录）
+
+### 记录 004
+
+日期：2026-06-03
+执行人：Claude Code (DeepSeek V4 Pro)
+阶段：E3 — LLM 智能模式增强
+本次目标：强化 LLM system prompt + /health LLM 元信息 + LLM 降级测试 + README 配置文档
+已完成：
+- /health 扩展 LLM 元信息：新增 llm_base_url / llm_model 字段（有 key 时返回配置值，无 key 时返回 null），不真实请求 LLM
+- agent.py system prompt 强化：新增"核心约束"区块，明确禁止编造行情数据、价格、涨跌幅、财务指标；要求必须先调工具再分析；工具失败时如实告知而非凭空推测
+- 测试新增 5 项：
+  1. test_llm_failure_falls_back_to_rule_mode — LLM chat() 返回 None → 规则模式降级
+  2. test_llm_tool_call_flow — mock LLM 先返回 tool_call 再返回 text，验证工具结果进入最终回复
+  3. test_llm_not_entered_without_api_key — 无 key 不进入 LLM 模式
+  4. test_health_includes_llm_meta_fields — /health 返回完整 LLM 元信息
+  5. test_health_llm_fields_none_without_api_key — 无 key 时 llm_base_url/llm_model 为 null
+- README 扩展 LLM 章节：DeepSeek / OpenAI / 通义千问 / Ollama 四套完整配置示例 + 运行模式对照表 + LLM 安全约束说明
+验证结果：
+- pytest -q: 59 passed in 1.51s（+5 项 E3 测试）
+- git diff --check: 无实质错误（仅 Windows CRLF 提示）
+- git status --short: M 5 files（CC_AUTONOMOUS_ROADMAP/README/app.py/agent.py/test_core.py）
+代码管理：
+- commit: 待提交（feat: improve llm assistant mode）
+剩余风险：
+- LLM 模式的 system prompt 仅约束行为，无法 100% 防止模型"幻觉"（这是 LLM 本身局限性）
+- 建议后续接入真实 LLM 后，手动验证几条核心链路的工具调用行为
+下一步：
+- E4：模型训练与回测升级（train_model.py + 时间序列切分 + 回测报告）
+涉及文件：
+- app.py（/health LLM 元信息扩展）
+- core/agent.py（system prompt 强化：反编造约束）
+- tests/test_core.py（+5 项 E3 LLM 测试）
+- README.md（LLM 配置章节扩展：DeepSeek/OpenAI/Qwen/Ollama）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）

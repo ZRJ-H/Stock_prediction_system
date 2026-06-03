@@ -18,13 +18,61 @@ python app.py
 
 ## LLM 配置（可选）
 
-不配置 API Key 时，系统使用内置规则引擎。配置后启用 LLM 智能调度：
+不配置 API Key 时，系统使用内置规则引擎（关键词匹配 + 直接工具调度）。配置任一 OpenAI-compatible API 后，系统启用 LLM 智能模式（function calling + 最多 8 轮工具迭代）。
+
+### DeepSeek（推荐，性价比高）
 
 ```powershell
-$env:OPENAI_API_KEY="your-key"
-$env:OPENAI_BASE_URL="https://api.deepseek.com/v1"   # 兼容 DeepSeek/通义千问/Ollama
+$env:OPENAI_API_KEY="sk-your-deepseek-key"
+$env:OPENAI_BASE_URL="https://api.deepseek.com/v1"
 $env:OPENAI_MODEL="deepseek-chat"
 ```
+
+### OpenAI
+
+```powershell
+$env:OPENAI_API_KEY="sk-your-openai-key"
+$env:OPENAI_BASE_URL="https://api.openai.com/v1"
+$env:OPENAI_MODEL="gpt-4o-mini"
+```
+
+### 通义千问（阿里云 DashScope）
+
+```powershell
+$env:OPENAI_API_KEY="sk-your-qwen-key"
+$env:OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+$env:OPENAI_MODEL="qwen-plus"
+```
+
+### Ollama（本地部署，免费）
+
+```bash
+# 先启动 Ollama 并拉取模型
+ollama pull qwen2.5:7b
+
+# Linux/macOS
+export OPENAI_API_KEY="ollama"          # 必填但可为任意值
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+export OPENAI_MODEL="qwen2.5:7b"
+```
+
+```powershell
+# Windows PowerShell
+$env:OPENAI_API_KEY="ollama"
+$env:OPENAI_BASE_URL="http://localhost:11434/v1"
+$env:OPENAI_MODEL="qwen2.5:7b"
+```
+
+### 运行模式说明
+
+| 条件 | 模式 | 行为 |
+|------|------|------|
+| 未配置 API Key | 规则模式 | 13 种意图关键词匹配 + 直接工具调度 |
+| 已配置 API Key | LLM 模式 | function calling + 最多 8 轮工具迭代 |
+| LLM 请求失败 | 自动降级 | 回退到规则模式，不影响用户使用 |
+| 工具调用失败 | 优雅降级 | LLM 告知用户"该数据暂不可用" |
+
+**LLM 安全约束**：LLM 模式下，系统 prompt 明确禁止编造行情数据。所有价格、涨跌幅、财务指标必须通过工具调用获取真实数据，无法获取时如实告知用户。
 
 ## 系统架构
 

@@ -541,3 +541,97 @@ def test_comprehensive_analysis_deterministic_advice_not_present(monkeypatch):
     forbidden = ["建议买入", "建议卖出", "建议全仓", "明天一定涨", "明天一定跌"]
     for phrase in forbidden:
         assert phrase not in text, f"综合分析不应包含 '{phrase}'"
+
+
+# ═════════════════════════════════════════════════════════════
+# E3：LLM 智能模式增强测试
+# ═════════════════════════════════════════════════════════════
+
+def test_llm_failure_falls_back_to_rule_mode(client, monkeypatch):
+    """LLM 返回 None 时自动降级规则模式，仍能正常回复。"""
+    from app import agent
+
+    monkeypatch.setattr(agent.llm, "api_key", "fake-key-for-test")
+    monkeypatch.setattr(agent.llm, "chat", lambda *a, **kw: None)
+
+    resp = client.post("/chat", json={"query": "搜索平安银行"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "reply" in data
+    assert "000001" in data["reply"]  # 规则模式仍能找到平安银行
+
+
+def test_llm_tool_call_flow(client, monkeypatch):
+    """LLM 先返回 tool_call 再返回文本：验证工具调用结果进入最终回复。"""
+    from app import agent
+
+    call_count = [0]
+
+    def fake_chat(messages, tools=None):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return {
+                "role": "assistant",
+                "tool_calls": [{
+                    "name": "search_stock",
+                    "arguments": {"keyword": "平安银行"},
+                }],
+            }
+        else:
+            return {"role": "assistant", "content": "根据搜索结果，平安银行(000001)是一只银行股，建议关注。"}
+
+    monkeypatch.setattr(agent.llm, "api_key", "fake-key-for-test")
+    monkeypatch.setattr(agent.llm, "chat", fake_chat)
+
+    resp = client.post("/chat", json={"query": "帮我看看平安银行"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "reply" in data
+    assert "000001" in data["reply"]
+    assert call_count[0] == 2  # 调用了两轮 LLM
+
+
+def test_llm_not_entered_without_api_key(client, monkeypatch):
+    """无 API key 时不进入 LLM 模式，使用规则引擎。"""
+    from app import agent
+
+    monkeypatch.setattr(agent.llm, "api_key", "")
+    monkeypatch.setattr(agent.llm, "chat", lambda *a, **kw: None)
+
+    resp = client.post("/chat", json={"query": "搜索贵州茅台"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "reply" in data
+    assert "600519" in data["reply"]  # 规则模式正常工作
+
+
+def test_health_includes_llm_meta_fields(client, monkeypatch):
+    """/health 返回 LLM 元信息字段（不真实请求 LLM）。"""
+    from app import agent
+
+    monkeypatch.setattr(agent.llm, "api_key", "sk-test-mock")
+    monkeypatch.setattr(agent.llm, "base_url", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(agent.llm, "model_name", "deepseek-chat")
+
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["llm_available"] is True
+    assert data["llm_base_url"] == "https://api.deepseek.com/v1"
+    assert data["llm_model"] == "deepseek-chat"
+
+
+def test_health_llm_fields_none_without_api_key(client, monkeypatch):
+    """无 API key 时 /health 的 llm_base_url 和 llm_model 返回 None。"""
+    from app import agent
+
+    monkeypatch.setattr(agent.llm, "api_key", "")
+    monkeypatch.setattr(agent.llm, "base_url", "https://api.openai.com/v1")
+    monkeypatch.setattr(agent.llm, "model_name", "gpt-4o-mini")
+
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["llm_available"] is False
+    assert data["llm_base_url"] is None
+    assert data["llm_model"] is None
