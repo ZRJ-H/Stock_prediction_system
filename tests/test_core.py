@@ -366,3 +366,178 @@ def test_stock_history_api_respects_days_param(client, monkeypatch):
     resp = client.get("/api/stock/000001/history?days=30")
     assert resp.status_code == 200
     assert captured_days[0] == 30
+
+
+# ═════════════════════════════════════════════════════════════
+# E2：综合分析报告结构化测试
+# ═════════════════════════════════════════════════════════════
+
+def _make_fake_report(skill_name, title, score, summary, signal=""):
+    """构建一个受控的 SkillReport，用于 mock 子模块输出。"""
+    from core.skills.base import ReportSection, SkillReport
+    return SkillReport(
+        skill_name=skill_name,
+        title=title,
+        sections=[ReportSection(heading="数据", content=f"{title}的模拟数据。", signal=signal)],
+        summary=summary,
+        score=score,
+    )
+
+
+def test_comprehensive_analysis_contains_fixed_sections(monkeypatch):
+    """综合分析输出包含固定章节：结论/技术面/基本面/风险/舆情/操作建议/免责声明。"""
+    from core.market_data import StockQuote
+    from core.skills.comprehensive import ComprehensiveSkill
+    from core.skills import technical, fundamental, risk, news
+
+    # mock 实时行情
+    fake_quote = StockQuote(
+        code="600519", name="贵州茅台", market="SH",
+        price=1800, open=1790, high=1810, low=1785, pre_close=1795,
+        change_pct=0.28, change_amount=5.0, volume=30000, amount=54000000,
+        turnover=0.15, pe=35.0, pb=12.0, total_mv=22500, time="2026-06-02 15:00"
+    )
+    monkeypatch.setattr("core.market_data.get_realtime_quote", lambda code: fake_quote)
+
+    # mock 四个子 Skill 的 execute 方法
+    monkeypatch.setattr(technical.TechnicalSkill, "execute",
+        lambda self, code: _make_fake_report("technical", "技术分析", 70, "技术面偏多。", "bullish"))
+    monkeypatch.setattr(fundamental.FundamentalSkill, "execute",
+        lambda self, code: _make_fake_report("fundamental", "基本面", 60, "基本面中性。", "neutral"))
+    monkeypatch.setattr(risk.RiskSkill, "execute",
+        lambda self, code: _make_fake_report("risk", "风险", 55, "风险可控。", "neutral"))
+    monkeypatch.setattr(news.NewsSkill, "execute",
+        lambda self, code: _make_fake_report("news", "舆情", 65, "舆情偏正面。", "bullish"))
+
+    report = ComprehensiveSkill().execute("600519")
+    text = report.format()
+
+    # 验证固定 7 章节存在且顺序正确
+    headings = ["【结论】", "【技术面】", "【基本面】", "【风险】", "【舆情】", "【操作建议】", "【免责声明】"]
+    positions = {}
+    for h in headings:
+        idx = text.find(h)
+        assert idx >= 0, f"缺少章节：{h}"
+        positions[h] = idx
+
+    # 严格顺序：结论 < 技术面 < 基本面 < 风险 < 舆情 < 操作建议 < 免责声明
+    for i in range(len(headings) - 1):
+        assert positions[headings[i]] < positions[headings[i + 1]], \
+            f"章节顺序错误：{headings[i]} 应在 {headings[i+1]} 之前"
+
+    # 综合评分已写入【结论】，不应在【免责声明】之后单独出现
+    assert ">> 综合评分" not in text
+    # 免责声明作为章节包含完整文案
+    assert "不构成投资建议" in text
+    # 标题含股票名
+    assert "贵州茅台" in text
+    assert "600519" in text
+
+
+def test_comprehensive_analysis_tolerates_module_failure(monkeypatch):
+    """子模块失败时综合分析仍返回完整报告，含降级提示。"""
+    from core.market_data import StockQuote
+    from core.skills.comprehensive import ComprehensiveSkill
+    from core.skills import technical, fundamental, risk, news
+
+    fake_quote = StockQuote(
+        code="000001", name="平安银行", market="SZ",
+        price=12.5, open=12.3, high=12.6, low=12.2, pre_close=12.4,
+        change_pct=0.81, change_amount=0.1, volume=500000, amount=6250000,
+        turnover=0.5, pe=6.0, pb=0.8, total_mv=2500, time="2026-06-02 15:00"
+    )
+    monkeypatch.setattr("core.market_data.get_realtime_quote", lambda code: fake_quote)
+
+    # 基本面正常，技术面和风险抛异常
+    monkeypatch.setattr(technical.TechnicalSkill, "execute",
+        lambda self, code: (_ for _ in ()).throw(RuntimeError("K线数据不可用")))
+    monkeypatch.setattr(fundamental.FundamentalSkill, "execute",
+        lambda self, code: _make_fake_report("fundamental", "基本面", 60, "基本面正常。", "neutral"))
+    monkeypatch.setattr(risk.RiskSkill, "execute",
+        lambda self, code: (_ for _ in ()).throw(RuntimeError("波动率计算失败")))
+    monkeypatch.setattr(news.NewsSkill, "execute",
+        lambda self, code: _make_fake_report("news", "舆情", 50, "舆情中性。", "neutral"))
+
+    report = ComprehensiveSkill().execute("000001")
+    text = report.format()
+
+    # 仍包含各章节
+    assert "【技术面】" in text
+    assert "【基本面】" in text
+    assert "【风险】" in text
+    assert "【舆情】" in text
+    # 失败模块有降级提示
+    assert "跳过" in text
+    # 免责声明仍在
+    assert "不构成投资建议" in text
+    # 综合结论中有数据不可用提示
+    assert "不可用" in text
+
+
+def test_comprehensive_analysis_includes_disclaimer(monkeypatch):
+    """综合分析输出包含【免责声明】作为独立章节（最后一个章节）。"""
+    from core.market_data import StockQuote
+    from core.skills.comprehensive import ComprehensiveSkill
+    from core.skills import technical, fundamental, risk, news
+
+    fake_quote = StockQuote(
+        code="600519", name="贵州茅台", market="SH",
+        price=1800, open=1790, high=1810, low=1785, pre_close=1795,
+        change_pct=0.28, change_amount=5.0, volume=30000, amount=54000000,
+        turnover=0.15, pe=35.0, pb=12.0, total_mv=22500, time="2026-06-02 15:00"
+    )
+    monkeypatch.setattr("core.market_data.get_realtime_quote", lambda code: fake_quote)
+
+    monkeypatch.setattr(technical.TechnicalSkill, "execute",
+        lambda self, code: _make_fake_report("technical", "技术", 50, "中", "neutral"))
+    monkeypatch.setattr(fundamental.FundamentalSkill, "execute",
+        lambda self, code: _make_fake_report("fundamental", "基本面", 50, "中", "neutral"))
+    monkeypatch.setattr(risk.RiskSkill, "execute",
+        lambda self, code: _make_fake_report("risk", "风险", 50, "中", "neutral"))
+    monkeypatch.setattr(news.NewsSkill, "execute",
+        lambda self, code: _make_fake_report("news", "舆情", 50, "中", "neutral"))
+
+    report = ComprehensiveSkill().execute("600519")
+    text = report.format()
+
+    # 【免责声明】是独立章节
+    assert "【免责声明】" in text
+    assert "不构成投资建议" in text
+    assert "投资需谨慎" in text
+    # 【免责声明】是最后一个章节
+    disclaimer_pos = text.rfind("【免责声明】")
+    suggestions_pos = text.find("【操作建议】")
+    assert suggestions_pos < disclaimer_pos, "【免责声明】应在【操作建议】之后，作为最终章节"
+
+
+def test_comprehensive_analysis_deterministic_advice_not_present(monkeypatch):
+    """操作建议不包含确定性买卖指令。"""
+    from core.market_data import StockQuote
+    from core.skills.comprehensive import ComprehensiveSkill
+    from core.skills import technical, fundamental, risk, news
+
+    fake_quote = StockQuote(
+        code="600519", name="贵州茅台", market="SH",
+        price=1800, open=1790, high=1810, low=1785, pre_close=1795,
+        change_pct=0.28, change_amount=5.0, volume=30000, amount=54000000,
+        turnover=0.15, pe=35.0, pb=12.0, total_mv=22500, time="2026-06-02 15:00"
+    )
+    monkeypatch.setattr("core.market_data.get_realtime_quote", lambda code: fake_quote)
+
+    # 全部偏高
+    monkeypatch.setattr(technical.TechnicalSkill, "execute",
+        lambda self, code: _make_fake_report("t", "技术", 85, "强", "bullish"))
+    monkeypatch.setattr(fundamental.FundamentalSkill, "execute",
+        lambda self, code: _make_fake_report("f", "基本面", 80, "好", "bullish"))
+    monkeypatch.setattr(risk.RiskSkill, "execute",
+        lambda self, code: _make_fake_report("r", "风险", 75, "低", "bullish"))
+    monkeypatch.setattr(news.NewsSkill, "execute",
+        lambda self, code: _make_fake_report("n", "舆情", 80, "好", "bullish"))
+
+    report = ComprehensiveSkill().execute("600519")
+    text = report.format()
+
+    # 禁止确定性买卖指令
+    forbidden = ["建议买入", "建议卖出", "建议全仓", "明天一定涨", "明天一定跌"]
+    for phrase in forbidden:
+        assert phrase not in text, f"综合分析不应包含 '{phrase}'"

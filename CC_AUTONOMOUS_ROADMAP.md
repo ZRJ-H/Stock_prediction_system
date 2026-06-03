@@ -42,13 +42,13 @@ rg --files -g '!**/.claude/**' -g '!**/.pytest_cache/**' -g '!**/__pycache__/**'
 当前建议下一步：
 
 ```text
-优先做 E2：综合分析报告结构化。
+优先做 E3：LLM 智能模式增强。
 ```
 
 原因：
 
-- E1 已完成（`2199eb6` + `ab81bb9`）。
-- 图表对演示效果提升明显，E2 能让报告输出更专业。
+- E1（`2199eb6` + `ab81bb9`）和 E2 已完成。
+- LLM 接入能让规则模式升级为真正智能调度，演示效果提升最大。
 
 ## 2. 总路线
 
@@ -685,3 +685,41 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - README.md（+23 行：API 路由 + 图表功能章节）
 - REVIEW_HISTORY.md（+108 行：里程碑 M1）
 - CC_AUTONOMOUS_ROADMAP.md（路线图 + 进度记录）
+
+### 记录 003
+
+日期：2026-06-02
+执行人：Claude Code (DeepSeek V4 Pro)
+阶段：E2 — 综合分析报告结构化
+本次目标：重构 ComprehensiveSkill 输出为固定章节报告，子模块失败优雅降级，禁止确定性买卖建议
+已完成：
+- 重写 comprehensive.py 的 _merge()，输出严格顺序的固定 7 章节：
+  1.【结论】→ 2.【技术面】→ 3.【基本面】→ 4.【风险】→ 5.【舆情】→ 6.【操作建议】→ 7.【免责声明】
+- 【结论】作为第一个 ReportSection（不再是 summary 由 format() 追加）
+- 【免责声明】作为最后一个 ReportSection（不再是 base.format() 尾部文本）
+- SkillReport 返回时 summary="" 且 disclaimer=""，避免 base.format() 重复追加
+- 新增 _build_conclusion()：加权评分 + 各维度简述 + 降级提示（从 dimension_signals 提取）
+- 新增 _build_suggestions()：基于信号的辅助判断，不含"建议买入/卖出"等确定性指令
+- 新增 _fallback_report()：子模块失败时返回明确降级提示（而非静默跳过）
+- 新增 _extract_signal()：从子报告提取信号方向（bullish/bearish/neutral）
+- 每个子模块独立 try/except，技术面失败不影响基本面/风险/舆情
+- base.py format() 优化：章节标题格式从 `--- 【X】 ---` 简化为 `【X】`
+- 测试：4 项新测试（严格章节顺序/模块失败容错/免责声明章节/禁止确定性建议）
+- README 更新：综合分析示例和演示命令表
+验证结果：
+- pytest -q: 54 passed in 1.36s（+4 项 E2 测试，含章节顺序断言）
+- git diff --check: 无实质错误
+- git diff --stat: 5 files（CC_AUTONOMOUS_ROADMAP/README/base.py/comprehensive.py/test_core.py）
+- 6 条核心演示链路未受影响
+代码管理：
+- commit: 待提交（推荐信息：feat: standardize comprehensive analysis report structure）
+剩余风险：
+- 各子 Skill（Technical/Risk/News）的报告格式尚未统一结构，后续可在各自 Skill 内部优化
+下一步：
+- 推荐按路线图进入 E3：LLM 智能模式增强（DeepSeek/Ollama + 工具调用回退）
+涉及文件：
+- core/skills/comprehensive.py（重写 _merge() + 4 辅助方法，+272/-96 行）
+- core/skills/base.py（format() 章节标题简化）
+- tests/test_core.py（+173 行：4 项综合分析测试，含章节顺序断言）
+- README.md（综合分析示例 + 演示命令表更新）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）

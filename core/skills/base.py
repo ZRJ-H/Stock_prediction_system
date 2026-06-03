@@ -50,14 +50,14 @@ class SkillReport:
         """将结构化报告格式化为可读文本。"""
         lines = [f"{'='*20} {self.title} {'='*20}\n"]
         for sec in self.sections:
-            lines.append(f"--- {sec.heading} ---")
+            lines.append(f"\n{sec.heading}")
             if sec.signal:
                 lines.append(f"  信号：{sec.signal}")
             lines.append(sec.content)
         if self.score is not None:
             lines.append(f"\n>> 综合评分：{self.score:.1f}/100")
         if self.summary:
-            lines.append(f"\n【综合结论】\n{self.summary}")
+            lines.append(f"\n【结论】\n{self.summary}")
         lines.append(f"\n{self.disclaimer}")
         return "\n".join(lines)
 
