@@ -236,20 +236,67 @@ Stock_prediction_system/
 
 ## 模型训练（可选）
 
-```bash
-# 使用示例数据集训练预测模型
-python -c "
-import pandas as pd
-from core.model_service import StockCNNService
+### 命令行训练
 
-df = pd.read_csv('dataset/tt.csv')
-svc = StockCNNService(model_dir='models')
-result = svc.train(df)
-print(f'训练完成: 准确率 {result[\"test_accuracy\"]:.2%}')
-"
+```bash
+python train_model.py --data dataset/tt.csv --model-dir models
 ```
 
-如已安装 TensorFlow，将优先训练 CNN；如 TensorFlow 不可用，将自动降级为 sklearn MLP。模型文件生成到 `models/` 目录：`stock_cnn.keras`（或 `stock_mlp.joblib`）+ `scaler.json` + `meta.json`。
+可选参数：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--data` | `dataset/tt.csv` | 训练数据 CSV 路径 |
+| `--model-dir` | `models` | 模型输出目录 |
+| `--epochs` | `12` | CNN 训练轮数（MLP 忽略） |
+| `--batch-size` | `32` | CNN 批次大小（MLP 忽略） |
+
+### 训练切分策略
+
+使用**时间序列切分**（不打乱数据）：
+
+```text
+前 70% → 训练集
+中 15% → 验证集（CNN 使用，MLP 忽略）
+后 15% → 测试集
+```
+
+随机打乱的 `train_test_split` 会泄漏未来信息到训练集，时间序列切分更接近真实交易场景。
+
+### 训练报告
+
+训练完成后生成 `models/training_report.json`：
+
+```json
+{
+  "backend": "sklearn_mlp_fallback",
+  "sample_count": 940,
+  "window_size": 60,
+  "train_accuracy": 0.6234,
+  "val_accuracy": 0.5812,
+  "test_accuracy": 0.5532,
+  "baseline_accuracy": 0.5213,
+  "train_start": "2024-01-01",
+  "train_end": "2025-06-15",
+  "val_start": "2025-06-16",
+  "val_end": "2025-09-01",
+  "test_start": "2025-09-02",
+  "test_end": "2025-12-31",
+  "model_files": ["stock_mlp.joblib", "scaler.json", "meta.json"]
+}
+```
+
+- `baseline_accuracy`：以训练集多数类作为固定预测，在测试集上的准确率；模型需显著超过此值才有意义
+- `model_files`：生成的模型文件列表
+
+### 模型局限
+
+- 仅基于历史 OHLCV 价格特征，不包含基本面、宏观、情绪等因子
+- 时间序列切分保证不泄漏未来信息，但准确率通常低于随机切分
+- CNN/MLP 均为简单架构，不构成投资策略；回测结果不代表未来表现
+- 预测输出为「涨/跌」二分类 + 置信度，不是确定性买卖信号
+
+如已安装 TensorFlow，将优先训练 CNN；如 TensorFlow 不可用，将自动降级为 sklearn MLP。模型文件生成到 `models/` 目录：`stock_cnn.keras`（或 `stock_mlp.joblib`）+ `scaler.json` + `meta.json` + `training_report.json`。
 
 ## 常见问题
 

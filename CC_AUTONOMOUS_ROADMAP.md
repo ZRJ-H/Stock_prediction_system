@@ -757,3 +757,41 @@ CC 每完成一个阶段，必须在这里追加一条记录。不要覆盖旧�
 - tests/test_core.py（+5 项 E3 LLM 测试）
 - README.md（LLM 配置章节扩展：DeepSeek/OpenAI/Qwen/Ollama）
 - CC_AUTONOMOUS_ROADMAP.md（进度记录）
+
+### 记录 005
+
+日期：2026-06-03
+执行人：Claude Code (DeepSeek V4 Pro)
+阶段：E4 — 模型训练与回测升级
+本次目标：新增 train_model.py CLI + 时间序列切分 + 训练报告 + 模型局限说明
+已完成：
+- data_pipeline.py 新增 time_series_split()：按时间顺序切分（70%/15%/15%），不随机打乱
+- model_service.py 新增 train_with_time_split()：时间序列训练 + 验证集 + baseline_accuracy + 日期范围 + 完整报告字典
+- train_model.py 新建：CLI 训练入口，支持 --data/--model-dir/--epochs/--batch-size 四个参数
+- 训练报告 models/training_report.json：包含 backend/sample_count/window_size/train+val+test_accuracy/baseline_accuracy/train~test 日期范围/model_files
+- 测试新增 6 项：
+  1. test_time_series_split_order — 验证切分保持原始时序顺序
+  2. test_time_series_split_disjoint — 验证三组互不相交
+  3. test_train_model_cli_defaults — CLI 参数解析默认值
+  4. test_train_model_cli_custom_args — CLI 自定义参数解析
+  5. test_time_series_training_report_fields — 200 行合成数据训练 + 报告字段完整性 + MLP 降级验证
+  6. test_time_series_training_rejects_tiny_sample — 62 行小样本切分后 val 为空，断言抛出 ValueError
+- README 模型训练章节重写：train_model.py 命令 + 参数表 + 时间序列切分说明 + 训练报告格式 + 模型局限（4 条）
+验证结果：
+- pytest -q: 65 passed in 1.54s（+6 项 E4 测试）
+- 训练测试使用 200 行合成数据（numpy 随机生成），不依赖真实网络或大文件
+- MLP 降级路径已验证（test_time_series_training_report_fields 断言 backend == "sklearn_mlp_fallback"）
+代码管理：
+- commit: 待提交（feat: add model training workflow）
+剩余风险：
+- test_time_series_training_report_fields 使用 window_size=30 + epochs=2 以加速测试，准确率接近随机（这是预期行为，不代表模型质量）
+- CNN 路径未在测试中覆盖（需要 TensorFlow，已通过 backend 字段验证 MLP 降级）
+下一步：
+- E5：最终交付整理（DEMO_SCRIPT.md + README 最终审查 + 最终验收）
+涉及文件：
+- core/data_pipeline.py（+time_series_split 函数）
+- core/model_service.py（+train_with_time_split 方法）
+- train_model.py（新建，CLI 训练入口）
+- tests/test_core.py（+6 项 E4 测试）
+- README.md（模型训练章节重写）
+- CC_AUTONOMOUS_ROADMAP.md（进度记录）

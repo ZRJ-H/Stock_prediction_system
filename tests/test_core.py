@@ -650,3 +650,142 @@ def test_health_llm_fields_none_without_api_key(client, monkeypatch):
     assert data["llm_available"] is False
     assert data["llm_base_url"] is None
     assert data["llm_model"] is None
+
+
+# ═════════════════════════════════════════════════════════════
+# E4：模型训练与回测升级测试
+# ═════════════════════════════════════════════════════════════
+
+def _make_synthetic_df(n_rows: int = 200):
+    """生成模拟股票数据帧，用于训练测试（不访问外部网络）。"""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(42)
+    close = 100 + np.cumsum(rng.normal(0, 0.5, n_rows))
+    close = np.maximum(close, 10)
+    data = {
+        "timestamp": pd.date_range("2024-01-01", periods=n_rows, freq="D"),
+        "open": close + rng.normal(0, 0.2, n_rows),
+        "high": close + np.abs(rng.normal(0.3, 0.2, n_rows)),
+        "low": close - np.abs(rng.normal(0.3, 0.2, n_rows)),
+        "close": close,
+        "vol": rng.integers(1000, 10000, n_rows).astype(float),
+        "label": (rng.random(n_rows) > 0.5).astype(int),
+    }
+    df = pd.DataFrame(data)
+    df.loc[df["low"] > df["close"], "low"] = df["close"] * 0.99
+    df.loc[df["high"] < df["close"], "high"] = df["close"] * 1.01
+    df.loc[df["open"] < df["low"], "open"] = df["low"]
+    df.loc[df["open"] > df["high"], "open"] = df["high"]
+    return df
+
+
+def test_time_series_split_order():
+    """时间序列切分保持原始顺序，不在组间混洗。"""
+    import numpy as np
+    from core.data_pipeline import time_series_split
+
+    x = np.arange(100).reshape((100, 1))
+    y = np.arange(100)
+    x_train, y_train, x_val, y_val, x_test, y_test = time_series_split(
+        x, y, train_ratio=0.7, val_ratio=0.15
+    )
+
+    # 各组在原始序列中连续且有序
+    assert y_train.tolist() == list(range(70))
+    assert y_val.tolist() == list(range(70, 85))
+    assert y_test.tolist() == list(range(85, 100))
+    assert len(x_train) == 70
+    assert len(x_val) == 15
+    assert len(x_test) == 15
+
+
+def test_train_model_cli_defaults():
+    """train_model CLI 参数默认值正确（使用真实 build_parser）。"""
+    from train_model import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.data == "dataset/tt.csv"
+    assert args.model_dir == "models"
+    assert args.epochs == 12
+    assert args.batch_size == 32
+
+
+def test_train_model_cli_custom_args():
+    """train_model CLI 自定义参数可解析（使用真实 build_parser）。"""
+    from train_model import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args([
+        "--data", "/tmp/test.csv",
+        "--model-dir", "/tmp/m",
+        "--epochs", "5",
+        "--batch-size", "16",
+    ])
+    assert args.data == "/tmp/test.csv"
+    assert args.model_dir == "/tmp/m"
+    assert args.epochs == 5
+    assert args.batch_size == 16
+
+
+def test_time_series_training_report_fields(monkeypatch, tmp_path):
+    """train_with_time_split 返回的报告包含所有必需字段。"""
+    import json
+    monkeypatch.setattr("core.model_service.HAS_TF", False)
+    df = _make_synthetic_df(200)
+    from core.model_service import StockCNNService
+
+    svc = StockCNNService(model_dir=tmp_path, window_size=30)
+    report = svc.train_with_time_split(df, epochs=2, batch_size=16)
+
+    required = [
+        "backend", "sample_count", "window_size",
+        "train_accuracy", "val_accuracy", "test_accuracy",
+        "baseline_accuracy",
+        "train_start", "train_end", "val_start", "val_end", "test_start", "test_end",
+        "model_files",
+    ]
+    for key in required:
+        assert key in report, f"报告缺少字段: {key}"
+
+    assert report["window_size"] == 30
+    assert report["sample_count"] > 0
+    assert report["backend"] == "sklearn_mlp_fallback"
+    assert 0.0 <= report["baseline_accuracy"] <= 1.0
+    assert 0.0 <= report["test_accuracy"] <= 1.0
+    assert isinstance(report["model_files"], list)
+    assert "stock_mlp.joblib" in report["model_files"]
+
+    # 验证报告文件可写入
+    report_path = tmp_path / "training_report.json"
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    assert report_path.exists()
+
+
+def test_time_series_split_disjoint():
+    """时间序列切分的三组互不相交。"""
+    import numpy as np
+    from core.data_pipeline import time_series_split
+
+    x = np.arange(200)
+    y = np.arange(200)
+    x_tr, _, x_va, _, x_te, _ = time_series_split(x, y)
+    tr_set = set(x_tr.flatten().tolist())
+    va_set = set(x_va.flatten().tolist())
+    te_set = set(x_te.flatten().tolist())
+    assert tr_set.isdisjoint(va_set)
+    assert tr_set.isdisjoint(te_set)
+    assert va_set.isdisjoint(te_set)
+
+
+def test_time_series_training_rejects_tiny_sample(monkeypatch, tmp_path):
+    """样本过少时切分后集合为空，应抛出明确 ValueError。"""
+    monkeypatch.setattr("core.model_service.HAS_TF", False)
+    df = _make_synthetic_df(62)  # window=60 → 仅 2 个窗口，val 段必为空
+    from core.model_service import StockCNNService
+
+    svc = StockCNNService(model_dir=tmp_path, window_size=60)
+    with pytest.raises(ValueError, match="不能为空"):
+        svc.train_with_time_split(df, epochs=1, batch_size=8)

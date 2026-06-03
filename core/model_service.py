@@ -42,7 +42,7 @@ except ImportError:
     keras = None
     HAS_TF = False
 
-from core.data_pipeline import MinMaxFeatureScaler, prepare_latest_window, prepare_training_data
+from core.data_pipeline import MinMaxFeatureScaler, prepare_latest_window, prepare_training_data, time_series_split
 
 
 class StockCNNService:
@@ -221,6 +221,132 @@ class StockCNNService:
         self.model = model
         self.scaler = scaler
         return {"test_loss": float(loss), "test_accuracy": float(accuracy)}
+
+    def train_with_time_split(
+        self, df: pd.DataFrame, epochs: int = 12, batch_size: int = 32
+    ) -> Dict[str, object]:
+        """使用时间序列切分训练模型，生成训练报告。
+
+        与 train() 的区别：
+          - 不随机打乱，严格按时间顺序切分（70%训练/15%验证/15%测试）
+          - Scaler 仅在训练段拟合，避免未来信息泄漏到 val/test
+          - 计算 baseline_accuracy（训练集多数类在测试集上的准确率）
+          - 返回完整报告（含日期范围、样本量、模型文件列表）
+
+        Returns:
+            dict with keys: backend, sample_count, window_size, train_accuracy,
+            val_accuracy, test_accuracy, baseline_accuracy, train_start, train_end,
+            val_start, val_end, test_start, test_end, model_files
+        """
+        import numpy as np
+        from core.data_pipeline import build_labels, build_windows, validate_dataframe
+
+        # 1. 校验 + 先构建窗口/标签（未归一化），再时序切分
+        validate_dataframe(df)
+        w = self.window_size
+        x_all = build_windows(df, self.feature_columns, window_size=w)
+        y_all = build_labels(df, window_size=w)
+        if len(x_all) == 0:
+            raise ValueError("无法构造训练样本，请检查窗口大小和数据长度。")
+
+        x_train, y_train, x_val, y_val, x_test, y_test = time_series_split(
+            x_all, y_all, train_ratio=0.7, val_ratio=0.15
+        )
+        if len(x_train) == 0 or len(x_val) == 0 or len(x_test) == 0:
+            raise ValueError(
+                f"时间序列切分后训练/验证/测试集不能为空 "
+                f"(train={len(x_train)}, val={len(x_val)}, test={len(x_test)}, "
+                f"总样本={len(x_all)}, window={w})。请增大数据集或减小窗口。"
+            )
+
+        # 2. Scaler 仅在训练段拟合，再用于 val/test（杜绝未来信息泄漏）
+        train_end_row = w + len(x_train)           # 训练段在原始 df 中的结束行号
+        scaler = MinMaxFeatureScaler.fit(
+            df.iloc[:train_end_row], self.feature_columns,
+        )
+        # 将 scaler 应用于全量数据后，重建各段的归一化窗口
+        transformed = scaler.transform(df, self.feature_columns)
+        x_all_norm = build_windows(transformed, self.feature_columns, window_size=w)
+        x_tr, y_tr, x_va, y_va, x_te, y_te = time_series_split(
+            x_all_norm, y_all, train_ratio=0.7, val_ratio=0.15
+        )
+
+        # 3. 基线准确率：训练集多数类在测试集上的准确率
+        majority_class = int(np.bincount(y_train).argmax())
+        baseline_acc = float((y_test == majority_class).mean())
+
+        # 4. 日期范围（labels 对应行号 w..n-1）
+        ts = df["timestamp"].astype(str)
+
+        def _ts(i):
+            if 0 <= i < len(ts):
+                return str(ts.iloc[i])[:10]
+            return "N/A"
+
+        # 5. 训练模型
+        if HAS_TF:
+            model = self._build_model()
+            model.fit(
+                x_tr, y_tr,
+                validation_data=(x_va, y_va),
+                epochs=epochs, batch_size=batch_size, verbose=0,
+            )
+            _, train_acc = model.evaluate(x_tr, y_tr, verbose=0)
+            _, val_acc = model.evaluate(x_va, y_va, verbose=0)
+            _, test_acc = model.evaluate(x_te, y_te, verbose=0)
+            model.save(self.model_path)
+            backend = "tensorflow_cnn"
+        else:
+            x_tr_f = x_tr.reshape((x_tr.shape[0], -1))
+            x_va_f = x_va.reshape((x_va.shape[0], -1))
+            x_te_f = x_te.reshape((x_te.shape[0], -1))
+            model = MLPClassifier(
+                hidden_layer_sizes=(128, 64), activation="relu",
+                learning_rate_init=1e-3, max_iter=300, random_state=42,
+            )
+            model.fit(x_tr_f, y_tr)
+            train_acc = float(model.score(x_tr_f, y_tr))
+            val_acc = float(model.score(x_va_f, y_va))
+            test_acc = float(model.score(x_te_f, y_te))
+            joblib.dump(model, self.fallback_model_path)
+            backend = "sklearn_mlp_fallback"
+
+        # 6. 持久化
+        scaler.to_file(self.scaler_path)
+        self.meta_path.write_text(
+            json.dumps({
+                "window_size": self.window_size,
+                "feature_columns": self.feature_columns,
+                "backend": backend,
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self.model = model
+        self.scaler = scaler
+
+        # 7. 模型文件列表
+        model_files = ["scaler.json", "meta.json"]
+        if backend == "tensorflow_cnn":
+            model_files.insert(0, "stock_cnn.keras")
+        else:
+            model_files.insert(0, "stock_mlp.joblib")
+
+        return {
+            "backend": backend,
+            "sample_count": len(x_all),
+            "window_size": self.window_size,
+            "train_accuracy": round(train_acc, 4),
+            "val_accuracy": round(val_acc, 4),
+            "test_accuracy": round(test_acc, 4),
+            "baseline_accuracy": round(baseline_acc, 4),
+            "train_start": _ts(w),
+            "train_end": _ts(w + len(x_train) - 1),
+            "val_start": _ts(w + len(x_train)),
+            "val_end": _ts(w + len(x_train) + len(x_val) - 1),
+            "test_start": _ts(w + len(x_train) + len(x_val)),
+            "test_end": _ts(w + len(x_train) + len(x_val) + len(x_test) - 1),
+            "model_files": model_files,
+        }
 
     def ensure_ready(self) -> None:
         """确保模型已加载（懒加载：如未加载则自动 load）。"""

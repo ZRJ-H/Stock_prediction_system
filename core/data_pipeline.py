@@ -129,6 +129,27 @@ def prepare_training_data(
     return x, y, scaler
 
 
+def time_series_split(
+    x: np.ndarray,
+    y: np.ndarray,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.15,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """按时间顺序切分数据（不随机打乱，保留时序依赖）。
+
+    Returns:
+        x_train, y_train, x_val, y_val, x_test, y_test
+    """
+    n = len(x)
+    train_end = int(n * train_ratio)
+    val_end = int(n * (train_ratio + val_ratio))
+    return (
+        x[:train_end], y[:train_end],
+        x[train_end:val_end], y[train_end:val_end],
+        x[val_end:], y[val_end:],
+    )
+
+
 def prepare_latest_window(
     df: pd.DataFrame,
     feature_columns: List[str],

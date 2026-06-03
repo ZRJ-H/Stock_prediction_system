@@ -43,6 +43,7 @@ models/*.keras
 models/*.joblib
 models/meta.json
 models/scaler.json
+models/training_report.json
 
 # Data (keep sample, ignore large uploads)
 dataset/*.csv
