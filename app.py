@@ -25,6 +25,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
 from core.agent import StockAgent
+from core.config import load_local_env
 from core.model_service import StockCNNService
 
 # 日志配置
@@ -36,6 +37,7 @@ logger = logging.getLogger("stock_app")
 
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
+load_local_env(BASE_DIR / ".env")
 
 # Flask 应用初始化
 app = Flask(__name__)

@@ -789,7 +789,7 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 > **提交**：`924eef4` — chore: add docker deployment setup
 > **分支**：`iter3-skill-system`
 > **定位**：CC_AUTONOMOUS_ROADMAP.md E7（记录 008）
-> **测试**：67 passed
+> **测试**：69 passed
 
 ---
 
@@ -836,7 +836,7 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 [x] Dockerfile 可表达基础部署流程
 [x] Docker 容器内监听 0.0.0.0:5000
 [x] README/DEMO_SCRIPT 部署说明同步
-[x] pytest -q: 67 passed
+[x] pytest -q: 69 passed
 [x] E7 文件路径限定 git diff --check 无实质错误
 ```
 
@@ -844,6 +844,62 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 
 - Docker 镜像未在本环境实际 build 验证（受本机 Docker/镜像网络可用性影响）
 - 容器默认不安装 TensorFlow/RAG/AKShare 重依赖，相关功能依赖项目既有降级策略
+
+---
+
+## 里程碑 M8 — 2026-06-03（规则分层架构整理）
+
+> **提交**：待提交 — docs: streamline claude project workflow
+> **分支**：`iter3-skill-system`
+> **定位**：CLAUDE.md / docs/PROGRESS.md / .claude/skills/progress-updater
+> **测试**：67 passed
+
+---
+
+### 一、本阶段交付
+
+#### CLAUDE.md 瘦身
+
+- **文件**：[CLAUDE.md](CLAUDE.md)
+- 删除临时路线、历史流水和执行提示词，只保留长期项目规则
+- 保留技术栈、启动/测试命令、关键文件、禁止事项、审查清单、自主执行边界
+- 明确日常进度、里程碑复盘、路线图分别由不同文件承载
+
+#### 日常进度记录
+
+- **文件**：[docs/PROGRESS.md](docs/PROGRESS.md)
+- 新增日常阶段性进度记录文件
+- 迁移 CLAUDE.md 瘦身前的 A/B/C/D 与交付修补迭代摘要
+- 明确 E1-E7 里程碑详见 REVIEW_HISTORY.md 与 CC_AUTONOMOUS_ROADMAP.md
+
+#### progress-updater skill
+
+- **文件**：[.claude/skills/progress-updater/SKILL.md](.claude/skills/progress-updater/SKILL.md)
+- 新增 YAML frontmatter，方便 Claude Code 识别
+- 定义完成阶段后追加 `docs/PROGRESS.md` 的模板和规则
+- 要求只记录事实，不记录敏感信息，不复制聊天原文
+
+#### .gitignore 放行 skill 定义
+
+- **文件**：[.gitignore](.gitignore)
+- 继续忽略 `.claude` 运行态文件
+- 放行 `.claude/skills/**/SKILL.md`，使项目级可复用流程可以随仓库提交
+
+### 二、验收结果
+
+```text
+[x] CLAUDE.md 只保留长期规则，不再记录临时任务流水
+[x] docs/PROGRESS.md 承接日常阶段记录
+[x] progress-updater skill 有 frontmatter 和固定模板
+[x] .gitignore 允许提交 .claude/skills/**/SKILL.md
+[x] pytest -q: 67 passed
+[x] git diff --check: 无实质错误
+```
+
+### 三、剩余风险
+
+- code-reviewer skill 尚未创建，后续可在审查流程重复稳定后补充
+- 当前 M8 主要是规则与文档架构调整，不涉及业务代码
 
 ---
 
@@ -860,5 +916,6 @@ ChatGPT 审查指出的另一个问题是"缺少测试"（原评估列为低优�
 | M5 (E5) | `3d7db01` | 06-03 | 65 | DEMO_SCRIPT.md + README 审查 |
 | M6 (E6) | `dc3660c` | 06-03 | 67 | 训练报告 API + 前端面板 |
 | M7 (E7) | `924eef4` | 06-03 | 67 | Docker 部署 + 依赖拆分 |
+| M8 (重构) | — | 06-03 | 69 | CLAUDE.md 瘦身 + 规则分层架构 |
 
 > **当前状态**：67 个测试全部通过，6 条核心演示链路可用，LLM/模型/RAG 均可优雅降级；项目已具备 README、DEMO_SCRIPT、Docker 基础部署和清晰依赖边界，可演示、可验收、可交接。

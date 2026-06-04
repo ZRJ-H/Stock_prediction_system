@@ -274,7 +274,7 @@ cat models/training_report.json
 
 ```bash
 pytest -q
-# 预期：67 passed
+# 预期：69 passed
 ```
 
 ---

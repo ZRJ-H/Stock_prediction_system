@@ -3,6 +3,7 @@
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -841,3 +842,42 @@ def test_model_report_unavailable_when_no_file(client, tmp_path, monkeypatch):
     assert data["available"] is False
     assert "message" in data
     assert "尚未训练" in data["message"]
+
+
+# ═════════════════════════════════════════════════════════════
+# 本地 .env 配置入口测试
+# ═════════════════════════════════════════════════════════════
+
+def test_load_local_env_reads_env_file(tmp_path, monkeypatch):
+    """load_local_env 可从 .env 文件读取 OpenAI 兼容配置。"""
+    from core.config import load_local_env
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join([
+            "# local llm config",
+            "OPENAI_API_KEY='sk-test'",
+            "OPENAI_BASE_URL=https://api.deepseek.com/v1",
+        ]),
+        encoding="utf-8",
+    )
+
+    load_local_env(env_file)
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-test"
+    assert os.environ["OPENAI_BASE_URL"] == "https://api.deepseek.com/v1"
+
+
+def test_load_local_env_does_not_override_existing_env(tmp_path, monkeypatch):
+    """已有系统环境变量优先级高于 .env。"""
+    from core.config import load_local_env
+
+    monkeypatch.setenv("OPENAI_API_KEY", "from-shell")
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_API_KEY=from-file", encoding="utf-8")
+
+    load_local_env(env_file)
+
+    assert os.environ["OPENAI_API_KEY"] == "from-shell"

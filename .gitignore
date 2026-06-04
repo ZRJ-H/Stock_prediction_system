@@ -25,6 +25,7 @@ Desktop.ini
 # Environment & secrets
 .env
 .env.*
+!.env.example
 *.secret
 *_secret.*
 credentials.*
@@ -62,5 +63,8 @@ tmp/
 temp/
 *.tmp
 
-# Claude Code
-.claude/
+# Claude Code (ignore runtime, keep skill definitions)
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+!.claude/skills/**/SKILL.md

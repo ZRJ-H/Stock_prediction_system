@@ -20,6 +20,20 @@ python app.py
 
 不配置 API Key 时，系统使用内置规则引擎（关键词匹配 + 直接工具调度）。配置任一 OpenAI-compatible API 后，系统启用 LLM 智能模式（function calling + 最多 8 轮工具迭代）。
 
+### 本地配置文件入口
+
+你也可以复制 `.env.example` 为 `.env`，直接在 `.env` 里修改配置：
+
+```text
+OPENAI_API_KEY=sk-your-key
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_MODEL=deepseek-chat
+```
+
+`.env` 已被 `.gitignore` 忽略，不要提交真实 API Key。修改 `.env` 后需要重启 `python app.py`。
+
+如果页面顶部显示 `LLM离线`，可点击旁边的“配置指南”查看同样的本地配置步骤。前端只展示说明，不接收或保存 API Key。
+
 ### DeepSeek（推荐，性价比高）
 
 ```powershell

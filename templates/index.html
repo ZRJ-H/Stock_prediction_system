@@ -36,6 +36,29 @@
     .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
     .status.ok { background: #d1fae5; color: #065f46; }
     .status.off { background: #fee2e2; color: #991b1b; }
+    .config-link {
+      border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 10px;
+      font-size: 12px; padding: 2px 8px; cursor: pointer;
+    }
+    .config-link:hover { border-color: #2563eb; color: #2563eb; }
+
+    /* ── LLM 配置指南 ── */
+    .llm-guide {
+      max-width: 800px; width: 100%; margin: 0 auto; display: none;
+      background: #fff; border-bottom: 1px solid #e5e7eb; padding: 12px 16px;
+    }
+    .llm-guide.visible { display: block; }
+    .llm-guide-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .llm-guide-header span { font-size: 13px; font-weight: 600; color: #374151; }
+    .llm-guide-header button {
+      background: none; border: 0; font-size: 18px; cursor: pointer; color: #9ca3af; padding: 0 4px;
+    }
+    .llm-guide-body { font-size: 12px; color: #4b5563; line-height: 1.6; }
+    .llm-guide-body ol { margin: 6px 0 8px 18px; padding: 0; }
+    .llm-guide-body code {
+      display: block; white-space: pre-wrap; background: #f9fafb; border: 1px solid #e5e7eb;
+      border-radius: 6px; padding: 8px; color: #111827; margin-top: 6px;
+    }
 
     /* ── 图表区域 ── */
     .chart-panel {
@@ -139,7 +162,27 @@
     <h1>股票分析助手</h1>
     <span id="modelStatus" class="status off">检测中...</span>
     <span id="llmStatus" class="status off">LLM 检测中...</span>
+    <button class="config-link" id="llmGuideBtn" onclick="toggleLlmGuide()" title="查看本地 LLM 配置步骤">配置指南</button>
     <span id="ragStatus" class="status off">RAG</span>
+  </div>
+
+  <!-- ── LLM 配置指南（只展示步骤，不接收或保存 API Key） ── -->
+  <div class="llm-guide" id="llmGuide">
+    <div class="llm-guide-header">
+      <span>LLM 配置指南</span>
+      <button onclick="hideLlmGuide()" title="关闭指南">&times;</button>
+    </div>
+    <div class="llm-guide-body">
+      <div>当前页面不会接收或保存 API Key。请在本地复制模板并填写自己的配置，然后重启服务。</div>
+      <ol>
+        <li>复制 <strong>.env.example</strong> 为 <strong>.env</strong></li>
+        <li>填写 <strong>OPENAI_API_KEY</strong>、<strong>OPENAI_BASE_URL</strong>、<strong>OPENAI_MODEL</strong></li>
+        <li>重启 <strong>python app.py</strong> 并刷新页面</li>
+      </ol>
+      <code>OPENAI_API_KEY=sk-your-key
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_MODEL=deepseek-chat</code>
+    </div>
   </div>
 
   <!-- ── ECharts 图表面板（默认隐藏，检测到股票代码后显示） ── -->
@@ -208,6 +251,7 @@
         document.getElementById('modelStatus').className = 'status ' + (d.model_loaded ? 'ok' : 'off');
         document.getElementById('llmStatus').textContent = d.llm_available ? 'LLM已连接' : 'LLM离线';
         document.getElementById('llmStatus').className = 'status ' + (d.llm_available ? 'ok' : 'off');
+        document.getElementById('llmGuideBtn').style.display = d.llm_available ? 'none' : '';
         document.getElementById('ragStatus').textContent = d.rag_ready ? '知识库OK' : '知识库未加载';
         document.getElementById('ragStatus').className = 'status ' + (d.rag_ready ? 'ok' : 'off');
       });
@@ -277,6 +321,16 @@
     /** 关闭报告面板 */
     function hideReport() {
       document.getElementById('reportPanel').classList.remove('visible');
+    }
+
+    /** 展开/关闭 LLM 配置指南 */
+    function toggleLlmGuide() {
+      document.getElementById('llmGuide').classList.toggle('visible');
+    }
+
+    /** 关闭 LLM 配置指南 */
+    function hideLlmGuide() {
+      document.getElementById('llmGuide').classList.remove('visible');
     }
 
     /**
