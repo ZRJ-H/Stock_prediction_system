@@ -221,6 +221,8 @@ RAG 用于回答投资知识类问题，例如：
 - 输入中出现 6 位股票代码时，调用 `/api/stock/<code>/history` 加载历史数据。
 - 使用 ECharts 展示收盘价、MA5、MA20 和成交量。
 - 提供 LLM 配置指南，但不收集、不保存 API Key。
+- 提供可恢复的历史盲测挑战、AI 情报摘要、积分和连胜展示。
+- 活动挑战期间隐藏股票类快捷提问，并显示聊天隔离提示。
 
 图表依赖 CDN。如果 ECharts 加载失败，页面只显示图表降级提示，不影响聊天功能。
 
@@ -235,6 +237,12 @@ RAG 用于回答投资知识类问题，例如：
 | GET | `/health` | 健康检查 |
 | GET | `/api/stock/<code>/history` | 返回历史 K 线，供图表使用 |
 | GET | `/api/model/report` | 返回训练报告 |
+| GET | `/api/blind-test/config` | 返回盲测模型、测试区间和新闻快照状态 |
+| GET | `/api/blind-test/active` | 恢复当前会话的未揭晓挑战 |
+| POST | `/api/blind-test/challenges` | 创建或返回当前活动挑战 |
+| POST | `/api/blind-test/challenges/<id>/intelligence` | 生成或读取缓存的AI情报 |
+| POST | `/api/blind-test/challenges/<id>/prediction` | 锁定用户预测并公开MLP判断 |
+| POST | `/api/blind-test/challenges/<id>/reveal` | 揭晓结果并更新积分和统计 |
 
 `/health` 是轻量接口，不会加载重型 RAG 模型，只检查状态，适合前端状态栏和部署探活。
 
@@ -284,7 +292,7 @@ Docker 镜像默认只包含轻量基础依赖，不包含 TensorFlow 等重依�
 
 ## 12. 测试与工程质量
 
-当前测试状态：`pytest -q` 为 `81 passed`。
+当前测试状态：`pytest -q` 为 `87 passed`。
 
 测试覆盖重点包括：
 
@@ -295,6 +303,10 @@ Docker 镜像默认只包含轻量基础依赖，不包含 TensorFlow 等重依�
 - session_id 校验和记忆安全。
 - `.env` 加载逻辑。
 - Flask 路由基础行为。
+- 活动挑战唯一性和页面恢复接口。
+- 情报缓存、未来新闻隔离及本地降级。
+- 独立/AI辅助积分、连胜和分组统计。
+- 聊天入口与工具执行层的双层盲测隔离。
 
 工程质量亮点：
 

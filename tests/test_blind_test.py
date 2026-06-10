@@ -91,6 +91,7 @@ def _make_service(tmp_path):
     service._df = df
     service._report = report
     service._model = _AlwaysUpModel()
+    service.news_service.llm.api_key = ""
     return service, df
 
 
@@ -153,6 +154,18 @@ def test_blind_test_api_flow(client, monkeypatch, tmp_path):
     assert created.status_code == 200
     challenge = created.get_json()
     assert challenge["target_date"] == target
+    assert "news_items" not in challenge
+
+    active = client.get("/api/blind-test/active?session_id=api-session")
+    assert active.status_code == 200
+    assert active.get_json()["id"] == challenge["id"]
+
+    intelligence = client.post(
+        f"/api/blind-test/challenges/{challenge['id']}/intelligence",
+        json={"session_id": "api-session"},
+    )
+    assert intelligence.status_code == 200
+    assert intelligence.get_json()["status"] == "ready"
 
     submitted = client.post(
         f"/api/blind-test/challenges/{challenge['id']}/prediction",
@@ -170,6 +183,28 @@ def test_blind_test_api_flow(client, monkeypatch, tmp_path):
 
     stats = client.get("/api/blind-test/stats?session_id=api-session")
     assert stats.get_json()["global"]["total"] == 1
+
+
+def test_chat_api_uses_active_challenge_isolation(client, monkeypatch, tmp_path):
+    import app as app_module
+
+    service, df = _make_service(tmp_path)
+    monkeypatch.setattr(app_module, "blind_test_service", service)
+    target = df.iloc[128]["timestamp"].strftime("%Y-%m-%d")
+    service.create_challenge("chat-session", target)
+
+    response = client.post("/chat", json={
+        "query": f"告诉我贵州茅台{target}的收盘价",
+        "session_id": "chat-session",
+    })
+    assert response.status_code == 200
+    assert "为避免答案泄漏" in response.get_json()["reply"]
+
+    challenge = service.active_challenge("chat-session")
+    actual = "涨" if df.iloc[128]["close"] > df.iloc[127]["close"] else "跌"
+    service.submit_prediction(challenge["id"], "chat-session", actual)
+    service.reveal(challenge["id"], "chat-session")
+    assert service.active_challenge("chat-session")["active"] is False
 
 
 def test_packaged_blind_test_assets_complete_real_challenge(tmp_path):
@@ -191,6 +226,9 @@ def test_index_contains_blind_test_panel(client):
     assert 'id="blindPanel"' in html
     assert 'id="blindDate"' in html
     assert 'id="blindChoice"' in html
+    assert 'id="blindIntelBtn"' in html
+    assert 'id="blindIntelligence"' in html
+    assert 'id="blindNewsCard"' not in html
     assert "submitBlindPrediction('涨')" in html
 
 
@@ -220,17 +258,19 @@ def test_reveal_requires_user_prediction_and_prediction_cannot_change(tmp_path):
 
 class _FakeLlm:
     api_key = "test-key"
+    calls = 0
 
     def chat(self, messages, temperature=0.2):
+        self.calls += 1
         assert "目标交易日：2025-01-15" in messages[1]["content"]
         assert "未来新闻" not in messages[1]["content"]
         return {
             "role": "assistant",
             "content": json.dumps({
-                "label": "涨",
-                "confidence": 0.66,
-                "reasons": ["经营信息偏积极"],
-                "risk": "样本较少",
+                "market_summary": "短期与中期价格特征存在差异。",
+                "observations": ["近20日波动有所扩大"],
+                "event_digest": ["公司发布股份回购相关公告"],
+                "uncertainties": ["资讯样本较少"],
             }, ensure_ascii=False),
         }
 
@@ -258,9 +298,12 @@ def test_news_snapshot_filters_future_information_and_parses_llm(tmp_path):
     service = BlindNewsService(snapshot, llm=_FakeLlm())
     selected = service.before_target("2025-01-15")
     assert [item["title"] for item in selected] == ["合规新闻"]
-    prediction = service.predict("2025-01-15", selected)
-    assert prediction["status"] == "ready"
-    assert prediction["label"] == "涨"
+    history = pd.DataFrame({"close": range(100, 160)})
+    intelligence = service.generate("2025-01-15", history, selected)
+    assert intelligence["status"] == "ready"
+    assert intelligence["generated_by"] == "llm"
+    assert intelligence["schema_version"] == 2
+    assert "label" not in intelligence
 
 
 def test_news_normalization_rejects_invalid_dates():
@@ -275,6 +318,94 @@ def test_news_normalization_rejects_invalid_dates():
     }, fetched_at)
     assert item["title"] == "贵州茅台公告"
     assert item["url"].endswith("/123.html")
+
+
+def test_only_one_active_challenge_and_active_endpoint_restores_it(tmp_path):
+    service, df = _make_service(tmp_path)
+    first_date = df.iloc[125]["timestamp"].strftime("%Y-%m-%d")
+    second_date = df.iloc[126]["timestamp"].strftime("%Y-%m-%d")
+    first = service.create_challenge("session-a", first_date)
+    second = service.create_challenge("session-a", second_date)
+
+    assert second["id"] == first["id"]
+    assert second["active_existing"] is True
+    active = service.active_challenge("session-a")
+    assert active["active"] is True
+    assert active["target_date"] == first_date
+
+
+def test_intelligence_is_cached_and_contains_no_prediction(tmp_path):
+    service, df = _make_service(tmp_path)
+    target = df.iloc[126]["timestamp"].strftime("%Y-%m-%d")
+    challenge = service.create_challenge("session-a", target)
+
+    first = service.intelligence(challenge["id"], "session-a")
+    second = service.intelligence(challenge["id"], "session-a")
+    assert first == second
+    assert first["generated_by"] == "local"
+    assert "label" not in first
+    assert "confidence" not in first
+    restored = service.active_challenge("session-a")
+    assert restored["intelligence_used"] is True
+    assert restored["intelligence"] == first
+
+
+def test_scoring_distinguishes_ai_assisted_and_independent_predictions(tmp_path):
+    service, df = _make_service(tmp_path)
+
+    first_idx = 125
+    first_date = df.iloc[first_idx]["timestamp"].strftime("%Y-%m-%d")
+    first_actual = "涨" if df.iloc[first_idx]["close"] > df.iloc[first_idx - 1]["close"] else "跌"
+    first = service.create_challenge("session-a", first_date)
+    service.submit_prediction(first["id"], "session-a", first_actual)
+    first_result = service.reveal(first["id"], "session-a")
+    assert first_result["result"]["user_score"] == 2
+
+    second_idx = 126
+    second_date = df.iloc[second_idx]["timestamp"].strftime("%Y-%m-%d")
+    second_actual = "涨" if df.iloc[second_idx]["close"] > df.iloc[second_idx - 1]["close"] else "跌"
+    second = service.create_challenge("session-a", second_date)
+    service.intelligence(second["id"], "session-a")
+    service.submit_prediction(second["id"], "session-a", second_actual)
+    second_result = service.reveal(second["id"], "session-a")
+
+    stats = second_result["stats"]["personal"]
+    assert second_result["result"]["user_score"] == 1
+    assert stats["total_score"] == 3
+    assert stats["without_ai"] == {"total": 1, "hits": 1}
+    assert stats["with_ai"] == {"total": 1, "hits": 1}
+    assert stats["current_streak"] == 2
+    assert stats["best_streak"] == 2
+
+
+def test_chat_isolation_blocks_stock_queries_but_allows_generic_knowledge(monkeypatch):
+    from core.agent import StockAgent
+    import core.tools as tools
+
+    agent = StockAgent()
+    monkeypatch.setattr(agent.llm, "api_key", "test-key")
+    monkeypatch.setattr(
+        tools,
+        "_tool_search_knowledge",
+        lambda query: f"知识回答：{query}",
+    )
+    context = {"id": "challenge-1", "target_date": "2025-09-18"}
+
+    blocked = agent.run("告诉我贵州茅台2025年9月18日收盘价", challenge_context=context)
+    assert "为避免答案泄漏" in blocked
+    allowed = agent.run("什么是夏普比率", challenge_context=context)
+    assert allowed == "知识回答：什么是夏普比率"
+
+
+def test_tool_execution_has_second_layer_blind_test_guard():
+    from core.tools import run_tool, set_blind_challenge_context
+
+    set_blind_challenge_context({"target_date": "2025-09-18"})
+    try:
+        result = run_tool("get_stock_info", {"code": "600519"})
+        assert "为避免答案泄漏" in result
+    finally:
+        set_blind_challenge_context(None)
 
 
 def test_prediction_rejects_non_maotai_without_network():

@@ -81,6 +81,10 @@ class BlindTestService:
             "user_label": "TEXT",
             "user_submitted_at": "TEXT",
             "user_correct": "INTEGER",
+            "intelligence_used": "INTEGER",
+            "intelligence_json": "TEXT",
+            "intelligence_generated_at": "TEXT",
+            "user_score": "INTEGER",
             "news_status": "TEXT",
             "news_label": "TEXT",
             "news_confidence": "REAL",
@@ -199,6 +203,22 @@ class BlindTestService:
 
         with self._connect() as conn:
             round_no = self._round_no(conn, session_id)
+            active = conn.execute(
+                """
+                SELECT * FROM challenges
+                WHERE session_id=? AND round_no=? AND revealed=0
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (session_id, round_no),
+            ).fetchone()
+            if active:
+                active_idx = index_by_date.get(active["target_date"])
+                if active_idx is None:
+                    raise BlindTestError("当前活动挑战的数据已不可用，请重置个人成绩。")
+                payload = self._challenge_payload(active, df, active_idx)
+                payload["active_existing"] = True
+                payload["message"] = "当前轮次已有未揭晓挑战，请先完成或重置后再创建新题。"
+                return payload
             if target_date:
                 idx = index_by_date.get(target_date)
                 if idx is None:
@@ -235,8 +255,9 @@ class BlindTestService:
                 """
                 INSERT INTO challenges(
                     id, session_id, round_no, target_date, predicted_label,
-                    confidence, baseline_label, news_items_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, baseline_label, news_items_json,
+                    intelligence_used, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     challenge_id, session_id, round_no, target_date,
@@ -255,25 +276,6 @@ class BlindTestService:
         except (json.JSONDecodeError, TypeError):
             return []
 
-    @staticmethod
-    def _news_prediction(row: sqlite3.Row) -> dict[str, Any]:
-        payload = {
-            "status": row["news_status"] or "pending",
-            "message": row["news_message"] or "",
-        }
-        if row["news_status"] == "ready":
-            try:
-                reasons = json.loads(row["news_reasons"] or "[]")
-            except json.JSONDecodeError:
-                reasons = []
-            payload.update({
-                "label": row["news_label"],
-                "confidence": row["news_confidence"],
-                "reasons": reasons,
-                "risk": row["news_risk"] or "",
-            })
-        return payload
-
     def _challenge_payload(
         self, row: sqlite3.Row, df: pd.DataFrame, idx: int
     ) -> dict[str, Any]:
@@ -284,11 +286,16 @@ class BlindTestService:
             "stock_name": self.STOCK_NAME,
             "target_date": row["target_date"],
             "history": self._bars(df.iloc[idx - 60:idx]),
-            "news_items": self._news_items(row),
             "test_range": self.config(),
             "submitted": submitted,
             "revealed": bool(row["revealed"]),
+            "intelligence_used": bool(row["intelligence_used"]),
         }
+        if row["intelligence_json"]:
+            try:
+                payload["intelligence"] = json.loads(row["intelligence_json"])
+            except json.JSONDecodeError:
+                payload["intelligence"] = None
         if submitted:
             payload.update({
                 "user_prediction": row["user_label"],
@@ -296,7 +303,6 @@ class BlindTestService:
                     "label": row["predicted_label"],
                     "confidence": row["confidence"],
                 },
-                "news_prediction": self._news_prediction(row),
             })
         if row["revealed"]:
             payload["result"] = self._result_payload(row)
@@ -311,11 +317,10 @@ class BlindTestService:
             "actual_return": row["actual_return"],
             "user_label": row["user_label"],
             "user_correct": bool(row["user_correct"]),
+            "user_score": int(row["user_score"] or 0),
+            "intelligence_used": bool(row["intelligence_used"]),
             "model_label": row["predicted_label"],
             "model_correct": bool(row["model_correct"]),
-            "news_label": row["news_label"],
-            "news_status": row["news_status"],
-            "news_correct": bool(row["news_correct"]) if row["news_correct"] is not None else None,
             "baseline_label": row["baseline_label"],
             "baseline_correct": bool(row["baseline_correct"]),
         }
@@ -336,31 +341,83 @@ class BlindTestService:
             if row["user_label"] and row["user_label"] != label:
                 raise BlindTestError("预测提交后不可修改。")
             if not row["user_label"]:
-                news_prediction = self.news_service.predict(
-                    row["target_date"], self._news_items(row)
-                )
                 conn.execute(
                     """
-                    UPDATE challenges SET user_label=?, user_submitted_at=?,
-                        news_status=?, news_label=?, news_confidence=?,
-                        news_reasons=?, news_risk=?, news_message=?
+                    UPDATE challenges SET user_label=?, user_submitted_at=?
                     WHERE id=?
                     """,
                     (
                         label,
                         datetime.now(timezone.utc).isoformat(),
-                        news_prediction["status"],
-                        news_prediction.get("label"),
-                        news_prediction.get("confidence"),
-                        json.dumps(news_prediction.get("reasons", []), ensure_ascii=False),
-                        news_prediction.get("risk", ""),
-                        news_prediction.get("message", ""),
                         challenge_id,
                     ),
                 )
                 row = conn.execute("SELECT * FROM challenges WHERE id=?", (challenge_id,)).fetchone()
             idx = df.index[df["timestamp"] == pd.Timestamp(row["target_date"])].tolist()[0]
             return self._challenge_payload(row, df, idx)
+
+    def active_challenge(self, session_id: str) -> dict[str, Any]:
+        validate_session_id(session_id)
+        df, _, report = self._load_assets()
+        index_by_date = {
+            df.iloc[idx]["timestamp"].strftime("%Y-%m-%d"): idx
+            for idx in self._test_indices(df, report)
+        }
+        with self._connect() as conn:
+            round_no = self._round_no(conn, session_id)
+            row = conn.execute(
+                """
+                SELECT * FROM challenges
+                WHERE session_id=? AND round_no=? AND revealed=0
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (session_id, round_no),
+            ).fetchone()
+            if row is None:
+                return {"active": False, "round_no": round_no}
+            idx = index_by_date.get(row["target_date"])
+            if idx is None:
+                return {"active": False, "round_no": round_no}
+            payload = self._challenge_payload(row, df, idx)
+            payload["active"] = True
+            return payload
+
+    def intelligence(self, challenge_id: str, session_id: str) -> dict[str, Any]:
+        validate_session_id(session_id)
+        df, _, _ = self._load_assets()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM challenges WHERE id=?", (challenge_id,)).fetchone()
+            if row is None:
+                raise BlindTestError("挑战不存在。")
+            if row["session_id"] != session_id:
+                raise BlindTestError("无权操作其他会话的挑战。")
+            if row["revealed"]:
+                raise BlindTestError("挑战已经揭晓，无需再生成赛前情报。")
+            if row["intelligence_json"]:
+                cached = json.loads(row["intelligence_json"])
+                if cached.get("schema_version") == 2:
+                    return cached
+
+            matches = df.index[df["timestamp"] == pd.Timestamp(row["target_date"])].tolist()
+            if not matches:
+                raise BlindTestError("目标交易日数据不存在。")
+            idx = matches[0]
+            history = df.iloc[idx - 60:idx].copy()
+            news_items = self._news_items(row)
+            intelligence = self.news_service.generate(row["target_date"], history, news_items)
+            conn.execute(
+                """
+                UPDATE challenges SET intelligence_used=1, intelligence_json=?,
+                    intelligence_generated_at=? WHERE id=?
+                """,
+                (
+                    json.dumps(intelligence, ensure_ascii=False),
+                    datetime.now(timezone.utc).isoformat(),
+                    challenge_id,
+                ),
+            )
+            conn.commit()
+            return intelligence
 
     def reveal(self, challenge_id: str, session_id: str) -> dict[str, Any]:
         validate_session_id(session_id)
@@ -381,23 +438,21 @@ class BlindTestService:
                 idx = matches[0]
                 actual_return = float(df.iloc[idx]["close"] / df.iloc[idx - 1]["close"] - 1)
                 actual_label = "涨" if actual_return > 0 else "跌"
-                news_correct = (
-                    int(row["news_label"] == actual_label)
-                    if row["news_status"] == "ready" else None
-                )
+                user_correct = int(row["user_label"] == actual_label)
+                user_score = user_correct * (1 if row["intelligence_used"] else 2)
                 conn.execute(
                     """
                     UPDATE challenges SET actual_label=?, actual_return=?,
-                        user_correct=?, model_correct=?, news_correct=?,
+                        user_correct=?, user_score=?, model_correct=?,
                         baseline_correct=?, revealed=1, counted=1, revealed_at=?
                     WHERE id=?
                     """,
                     (
                         actual_label,
                         actual_return,
-                        int(row["user_label"] == actual_label),
+                        user_correct,
+                        user_score,
                         int(row["predicted_label"] == actual_label),
-                        news_correct,
                         int(row["baseline_label"] == actual_label),
                         datetime.now(timezone.utc).isoformat(),
                         challenge_id,
@@ -423,32 +478,65 @@ class BlindTestService:
                    COALESCE(SUM(user_correct), 0) AS user_hits,
                    COALESCE(SUM(model_correct), 0) AS model_hits,
                    COALESCE(SUM(baseline_correct), 0) AS baseline_hits,
-                   COUNT(news_correct) AS news_total,
-                   COALESCE(SUM(news_correct), 0) AS news_hits
+                   COALESCE(SUM(user_score), 0) AS total_score,
+                   COALESCE(SUM(CASE WHEN user_score IS NOT NULL AND intelligence_used=1 THEN 1 ELSE 0 END), 0) AS with_ai_total,
+                   COALESCE(SUM(CASE WHEN user_score IS NOT NULL AND intelligence_used=1 THEN user_correct ELSE 0 END), 0) AS with_ai_hits,
+                   COALESCE(SUM(CASE WHEN user_score IS NOT NULL AND intelligence_used=0 THEN 1 ELSE 0 END), 0) AS without_ai_total,
+                   COALESCE(SUM(CASE WHEN user_score IS NOT NULL AND intelligence_used=0 THEN user_correct ELSE 0 END), 0) AS without_ai_hits
             FROM challenges WHERE counted=1 {where}
             """,
             params,
         ).fetchone()
         total = int(row["total"])
-        news_total = int(row["news_total"])
-        result = {"total": total, "news_total": news_total}
+        result = {
+            "total": total,
+            "total_score": int(row["total_score"]),
+            "with_ai": {
+                "total": int(row["with_ai_total"]),
+                "hits": int(row["with_ai_hits"]),
+            },
+            "without_ai": {
+                "total": int(row["without_ai_total"]),
+                "hits": int(row["without_ai_hits"]),
+            },
+        }
         for name in ("user", "model", "baseline"):
             hits = int(row[f"{name}_hits"])
             result[f"{name}_hits"] = hits
             result[f"{name}_accuracy"] = hits / total if total else 0.0
-        news_hits = int(row["news_hits"])
-        result["news_hits"] = news_hits
-        result["news_accuracy"] = news_hits / news_total if news_total else 0.0
         return result
+
+    @staticmethod
+    def _streaks(conn: sqlite3.Connection, session_id: str, round_no: int) -> dict[str, int]:
+        rows = conn.execute(
+            """
+            SELECT user_correct FROM challenges
+            WHERE counted=1 AND user_score IS NOT NULL
+              AND session_id=? AND round_no=?
+            ORDER BY revealed_at ASC
+            """,
+            (session_id, round_no),
+        ).fetchall()
+        current = 0
+        best = 0
+        for row in rows:
+            if row["user_correct"]:
+                current += 1
+                best = max(best, current)
+            else:
+                current = 0
+        return {"current_streak": current, "best_streak": best}
 
     def stats(self, session_id: str) -> dict[str, Any]:
         validate_session_id(session_id)
         with self._connect() as conn:
             round_no = self._round_no(conn, session_id)
+            personal = self._summarize(
+                conn, "AND session_id=? AND round_no=?", (session_id, round_no)
+            )
+            personal.update(self._streaks(conn, session_id, round_no))
             return {
-                "personal": self._summarize(
-                    conn, "AND session_id=? AND round_no=?", (session_id, round_no)
-                ),
+                "personal": personal,
                 "global": self._summarize(conn),
                 "round_no": round_no,
             }

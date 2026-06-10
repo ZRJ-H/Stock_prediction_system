@@ -1,18 +1,26 @@
-"""Historical-news support for the blind-test game."""
+"""Leakage-safe intelligence summaries for the historical blind-test game."""
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from core.llm_service import LLMExplainer
 
 
 class BlindNewsService:
-    """Load an offline news snapshot and create a leakage-safe LLM prediction."""
+    """Load offline news and summarize only information available before a target date."""
+
+    FORBIDDEN_OUTPUT = (
+        "看涨", "看跌", "预计上涨", "预计下跌", "大概率上涨", "大概率下跌",
+        "建议买入", "建议卖出", "做多", "做空", "目标价", "操作建议",
+    )
 
     def __init__(
         self,
@@ -31,9 +39,8 @@ class BlindNewsService:
     def _parse_time(value: str) -> datetime | None:
         if not value:
             return None
-        normalized = value.strip().replace("T", " ").replace("Z", "")
         try:
-            return datetime.fromisoformat(normalized)
+            return datetime.fromisoformat(value.strip().replace("T", " ").replace("Z", ""))
         except ValueError:
             return None
 
@@ -43,8 +50,6 @@ class BlindNewsService:
         items: list[dict[str, Any]] = []
         if self.snapshot_path.exists():
             for line in self.snapshot_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
                 try:
                     item = json.loads(line)
                 except json.JSONDecodeError:
@@ -69,7 +74,6 @@ class BlindNewsService:
         }
 
     def before_target(self, target_date: str) -> list[dict[str, Any]]:
-        """Return only news published before 09:30 on the target trading day."""
         cutoff = datetime.fromisoformat(f"{target_date} 09:30:00")
         start = cutoff - timedelta(days=self.lookback_days)
         selected = []
@@ -88,9 +92,8 @@ class BlindNewsService:
 
     @staticmethod
     def _extract_json(text: str) -> dict[str, Any] | None:
-        text = text.strip()
-        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
-        candidate = fenced.group(1) if fenced else text
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text.strip(), re.S)
+        candidate = fenced.group(1) if fenced else text.strip()
         if not candidate.startswith("{"):
             match = re.search(r"\{.*\}", candidate, re.S)
             candidate = match.group(0) if match else ""
@@ -100,58 +103,117 @@ class BlindNewsService:
             return None
         return value if isinstance(value, dict) else None
 
-    def predict(self, target_date: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-        if not items:
-            return {
-                "status": "abstained",
-                "message": f"目标日前{self.lookback_days}天没有合规的离线新闻。",
-            }
-        if not self.llm.api_key:
-            return {
-                "status": "abstained",
-                "message": "大模型未配置，新闻 AI 本轮弃权。",
-            }
+    @staticmethod
+    def _market_metrics(history: pd.DataFrame) -> dict[str, float]:
+        close = pd.to_numeric(history["close"], errors="coerce").dropna()
+        returns = close.pct_change().dropna()
+        peak = close.cummax()
+        drawdown = (close / peak - 1).min()
+        return {
+            "return_5": float(close.iloc[-1] / close.iloc[-6] - 1),
+            "return_20": float(close.iloc[-1] / close.iloc[-21] - 1),
+            "ma5": float(close.tail(5).mean()),
+            "ma20": float(close.tail(20).mean()),
+            "volatility_20": float(returns.tail(20).std(ddof=0) * math.sqrt(20)),
+            "max_drawdown_60": float(drawdown),
+        }
 
+    def _local_intelligence(
+        self, history: pd.DataFrame, news_items: list[dict[str, Any]], reason: str = ""
+    ) -> dict[str, Any]:
+        metrics = self._market_metrics(history)
+        relation = "短期均线高于中期均线" if metrics["ma5"] >= metrics["ma20"] else "短期均线低于中期均线"
+        uncertainties = [
+            f"近20日波动幅度约 {metrics['volatility_20'] * 100:.1f}%，历史波动不能代表目标日结果。",
+            f"60日内最大回撤约 {abs(metrics['max_drawdown_60']) * 100:.1f}%。",
+        ]
+        if not news_items:
+            uncertainties.append(f"目标日前{self.lookback_days}天没有合规离线资讯，信息覆盖有限。")
+        if reason:
+            uncertainties.append(reason)
+        return {
+            "status": "ready",
+            "schema_version": 2,
+            "generated_by": "local",
+            "market_summary": (
+                f"近5日收益 {metrics['return_5'] * 100:.1f}%，"
+                f"近20日收益 {metrics['return_20'] * 100:.1f}%；{relation}。"
+            ),
+            "observations": [
+                f"近20日波动幅度约 {metrics['volatility_20'] * 100:.1f}%。",
+                f"60日内最大回撤约 {abs(metrics['max_drawdown_60']) * 100:.1f}%。",
+            ],
+            "event_digest": [
+                f"{item['published_at']}：{item['title']}（{item['source']}）"
+                for item in news_items
+            ][:3],
+            "uncertainties": uncertainties,
+            "news_items": news_items,
+        }
+
+    def _valid_intelligence(self, value: dict[str, Any]) -> bool:
+        required = {"market_summary", "observations", "event_digest", "uncertainties"}
+        if not required.issubset(value):
+            return False
+        if any(key in value for key in ("label", "confidence", "probability", "advice")):
+            return False
+        text = json.dumps(value, ensure_ascii=False)
+        return not any(word in text for word in self.FORBIDDEN_OUTPUT)
+
+    def generate(
+        self,
+        target_date: str,
+        history: pd.DataFrame,
+        news_items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Generate an intelligence brief without a direction, probability, or advice."""
+        if not self.llm.api_key:
+            return self._local_intelligence(history, news_items, "大模型未配置，已使用本地行情摘要。")
+
+        metrics = self._market_metrics(history)
         news_text = "\n".join(
             f"- [{item['published_at']}] {item['title']}（{item['source']}）"
             + (f"\n  摘要：{item['summary']}" if item["summary"] else "")
-            for item in items
-        )
+            for item in news_items
+        ) or "无合规离线资讯"
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "你是历史盲测中的新闻分析员。只能使用用户提供且早于目标日开盘的资讯，"
-                    "不得调用外部知识，不得假设目标日结果。输出严格 JSON，不要 Markdown。"
+                    "你是历史盲测中的情报整理员，只能整理用户提供的信息。"
+                    "禁止给出涨跌方向、概率、目标价、买卖或操作建议。"
+                    "输出严格 JSON，不要 Markdown。"
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"股票：贵州茅台(600519)\n目标交易日：{target_date}\n"
-                    f"可用资讯：\n{news_text}\n\n"
-                    '请输出 {"label":"涨或跌","confidence":0到1,'
-                    '"reasons":["最多三条简短理由"],"risk":"一句风险说明"}。'
+                    "以下数据全部早于目标日开盘：\n"
+                    f"近5日收益：{metrics['return_5']:.6f}\n"
+                    f"近20日收益：{metrics['return_20']:.6f}\n"
+                    f"MA5：{metrics['ma5']:.4f}\nMA20：{metrics['ma20']:.4f}\n"
+                    f"近20日波动：{metrics['volatility_20']:.6f}\n"
+                    f"60日最大回撤：{metrics['max_drawdown_60']:.6f}\n"
+                    f"资讯：\n{news_text}\n\n"
+                    '输出 {"market_summary":"客观行情描述",'
+                    '"observations":["最多3条值得注意的行情特征"],'
+                    '"event_digest":["最多3条资讯事件摘要，不评价利好利空"],'
+                    '"uncertainties":["最多3条限制"]}。'
                 ),
             },
         ]
         response = self.llm.chat(messages, temperature=0.2)
         parsed = self._extract_json((response or {}).get("content", ""))
-        if not parsed or parsed.get("label") not in {"涨", "跌"}:
-            return {"status": "abstained", "message": "新闻 AI 返回格式异常，本轮弃权。"}
-        try:
-            confidence = min(1.0, max(0.0, float(parsed.get("confidence", 0.5))))
-        except (TypeError, ValueError):
-            confidence = 0.5
-        reasons = [
-            str(reason).strip()[:100]
-            for reason in parsed.get("reasons", [])
-            if str(reason).strip()
-        ][:3]
+        if not parsed or not self._valid_intelligence(parsed):
+            return self._local_intelligence(history, news_items, "大模型输出不符合盲测规则，已安全降级。")
         return {
             "status": "ready",
-            "label": parsed["label"],
-            "confidence": confidence,
-            "reasons": reasons,
-            "risk": str(parsed.get("risk", "")).strip()[:150],
+            "schema_version": 2,
+            "generated_by": "llm",
+            "market_summary": str(parsed["market_summary"])[:300],
+            "observations": [str(v)[:120] for v in parsed["observations"][:3]],
+            "event_digest": [str(v)[:160] for v in parsed["event_digest"][:3]],
+            "uncertainties": [str(v)[:120] for v in parsed["uncertainties"][:3]],
+            "news_items": news_items,
         }

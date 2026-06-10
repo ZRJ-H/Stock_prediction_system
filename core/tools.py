@@ -310,11 +310,19 @@ def _tool_recommend_stock(style: str = "综合评分") -> str:
 # 当前请求的 session_id，使用 ContextVar 隔离并发请求（避免多线程/协程串号）
 import contextvars as _ctx
 _current_session_id: _ctx.ContextVar[str] = _ctx.ContextVar("session_id", default="")
+_current_blind_challenge: _ctx.ContextVar[dict | None] = _ctx.ContextVar(
+    "blind_challenge", default=None
+)
 
 
 def set_current_session(session_id: str) -> None:
     """设置当前请求的 session_id。agent 在每次请求开始前调用。"""
     _current_session_id.set(session_id)
+
+
+def set_blind_challenge_context(context: dict | None) -> None:
+    """Set request-local blind-test isolation context."""
+    _current_blind_challenge.set(context)
 
 
 def _tool_update_preference(key: str, value: str) -> str:
@@ -549,6 +557,13 @@ def run_tool(name: str, args: Dict[str, Any]) -> str:
     tool = TOOL_MAP.get(name)
     if tool is None:
         return f"未知工具: {name}"
+    challenge = _current_blind_challenge.get()
+    if challenge and name not in {"search_knowledge", "update_preference"}:
+        target_date = challenge.get("target_date", "目标日")
+        return (
+            f"当前正在进行 {target_date} 历史盲测。为避免答案泄漏，"
+            "揭晓前只能询问通用投资知识或使用面板中的 AI 情报助手。"
+        )
     try:
         return tool.handler(**args)
     except Exception as e:

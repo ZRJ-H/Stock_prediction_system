@@ -132,8 +132,10 @@ templates/index.html (前端 Chat UI)
 | GET | `/api/stock/<code>/history?days=90` | 历史K线 `{code, days, items[{date,open,high,low,close,volume}]}` |
 | GET | `/api/model/report` | 模型训练报告 `{available, backend, sample_count, ...}` |
 | GET | `/api/blind-test/config` | 历史盲测模型与测试区间 |
+| GET | `/api/blind-test/active?session_id=xxx` | 恢复当前未揭晓挑战 |
 | POST | `/api/blind-test/challenges` | 随机或指定日期创建盲测挑战 |
-| POST | `/api/blind-test/challenges/<id>/prediction` | 锁定用户预测并公开 MLP/新闻 AI 判断 |
+| POST | `/api/blind-test/challenges/<id>/intelligence` | 生成或读取缓存的 AI 情报摘要 |
+| POST | `/api/blind-test/challenges/<id>/prediction` | 锁定用户预测并公开 MLP 判断 |
 | POST | `/api/blind-test/challenges/<id>/reveal` | 揭晓真实行情并计分 |
 | GET | `/api/blind-test/stats?session_id=xxx` | 个人与全局盲测成绩 |
 | POST | `/api/blind-test/reset` | 开启新的个人统计轮次 |
@@ -278,10 +280,13 @@ Stock_prediction_system/
 页面中的“历史盲测挑战”支持随机或指定测试日、先预测后揭晓、个人/全局计分，
 以及“下一日延续昨日方向”基线对照。同一挑战重复揭晓不会重复计分。
 
-互动模式要求用户先选择“涨/跌”，提交后才公开 MLP 行情模型和新闻 AI 的判断。
-新闻 AI 只读取目标交易日开盘前发布的离线资讯，避免使用目标日结果或未来新闻。
-用户、MLP、新闻 AI 和昨日方向基线分别统计；新闻不足或 LLM 未配置时，新闻 AI
-会明确弃权，不影响其他参与方。
+用户可以直接选择“涨/跌”，也可以先调用 AI 情报助手。情报助手只整理目标日前
+60日行情和开盘前发布的离线资讯，不输出涨跌方向、概率或操作建议；LLM不可用时
+自动生成本地行情摘要。提交预测后才公开 MLP 判断。
+
+独立判断命中得2分，使用AI情报后命中得1分。系统记录总积分、当前/最佳连胜以及
+有无AI辅助时的分组命中率。同一轮只允许一个未揭晓挑战，刷新页面可恢复当前题目。
+挑战期间普通聊天只允许通用投资知识，股票行情、新闻、预测和日期查询会被后端拦截。
 
 ```bash
 # 准备真实东方财富新闻离线快照

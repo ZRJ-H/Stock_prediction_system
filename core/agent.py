@@ -94,14 +94,49 @@ class StockAgent:
     def __init__(self) -> None:
         self.llm = LLMExplainer()
 
-    def run(self, query: str, session_id: str = "") -> str:
+    def run(
+        self,
+        query: str,
+        session_id: str = "",
+        challenge_context: dict | None = None,
+    ) -> str:
         """主入口：处理用户查询并返回回复。
 
         路由策略：有 API key → LLM 模式，无 key → 规则模式。
         """
+        from core.tools import set_blind_challenge_context
+        set_blind_challenge_context(challenge_context)
+        if challenge_context:
+            return self._run_restricted(query, session_id, challenge_context)
         if self.llm.api_key:
             return self._run_llm(query, session_id)
         return self._run_rule(query, session_id)
+
+    def _run_restricted(
+        self, query: str, session_id: str, challenge_context: dict
+    ) -> str:
+        """Allow only generic investment knowledge while a challenge is active."""
+        forbidden = (
+            r"\b\d{6}\b|贵州茅台|茅台|股票|股价|行情|价格|收盘|开盘|最高|最低|"
+            r"涨跌|涨幅|跌幅|预测|走势|K线|均线|技术指标|新闻|公告|财报|"
+            r"基本面|综合分析|对比|推荐|目标日|答案|现在|实时|"
+            r"\d{4}[年\-/.]\d{1,2}[月\-/.]\d{1,2}"
+        )
+        target_date = challenge_context.get("target_date", "目标日")
+        if re.search(forbidden, query, re.IGNORECASE):
+            return (
+                f"当前正在进行 {target_date} 历史盲测。为避免答案泄漏，"
+                "揭晓前只能询问通用投资知识或使用面板中的 AI 情报助手。"
+            )
+        if session_id:
+            from core.memory import add_message
+            add_message(session_id, "user", query)
+        from core.tools import _tool_search_knowledge
+        reply = _tool_search_knowledge(query)
+        if session_id:
+            from core.memory import add_message
+            add_message(session_id, "assistant", reply)
+        return reply
 
     def _select_tool_group(self, query: str) -> str:
         """根据查询内容智能选择工具分组。

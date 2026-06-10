@@ -83,7 +83,19 @@ def chat():
             return jsonify({"error": str(e)}), 400
 
     try:
-        reply = agent.run(query, session_id=session_id)
+        challenge_context = None
+        if session_id:
+            active = blind_test_service.active_challenge(session_id)
+            if active.get("active"):
+                challenge_context = {
+                    "id": active["id"],
+                    "target_date": active["target_date"],
+                }
+        reply = agent.run(
+            query,
+            session_id=session_id,
+            challenge_context=challenge_context,
+        )
     except Exception:
         logger.exception("处理请求时出错，query=%s", query[:200])
         reply = "抱歉，处理您的请求时出现了内部错误，请稍后重试。"
@@ -247,6 +259,18 @@ def blind_test_config():
     return jsonify(blind_test_service.config())
 
 
+@app.route("/api/blind-test/active", methods=["GET"])
+def active_blind_test_challenge():
+    """Return the current round's unrevealed challenge for page restoration."""
+    session_id = (request.args.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        return jsonify(blind_test_service.active_challenge(session_id))
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.route("/api/blind-test/challenges", methods=["POST"])
 def create_blind_test_challenge():
     """随机或按指定测试日创建一个历史盲测挑战。"""
@@ -280,6 +304,23 @@ def submit_blind_test_prediction(challenge_id):
     except Exception:
         logger.exception("提交历史盲测用户预测失败 id=%s", challenge_id)
         return jsonify({"error": "提交用户预测失败"}), 500
+    return jsonify(result)
+
+
+@app.route("/api/blind-test/challenges/<challenge_id>/intelligence", methods=["POST"])
+def generate_blind_test_intelligence(challenge_id):
+    """Generate or return the cached leakage-safe intelligence brief."""
+    data = request.get_json(silent=True) or {}
+    session_id = (data.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        result = blind_test_service.intelligence(challenge_id, session_id)
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logger.exception("生成历史盲测情报失败 id=%s", challenge_id)
+        return jsonify({"error": "生成 AI 情报失败"}), 500
     return jsonify(result)
 
 
