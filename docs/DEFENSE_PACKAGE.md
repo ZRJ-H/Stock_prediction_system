@@ -30,7 +30,11 @@
    - 重点讲 Agent 设计：规则模式、LLM function calling、工具注册、降级策略、防止幻觉、可测试性。
    - 适合答辩中回答“你们的智能体现在哪里”“如何保证可靠性”等问题。
 
-3. `DEFENSE_PACKAGE.md`
+3. `MLP_DEFENSE_NOTES.md`
+   - 解释 MLP 结构、60日输入、标签、归一化和时间切分。
+   - 说明实际训练结果、过拟合、置信度边界和答辩问答。
+
+4. `DEFENSE_PACKAGE.md`
    - 面向整组答辩组织。
    - 包含演示流程、PPT 大纲、图示素材、问答备选和免责声明。
 
@@ -156,7 +160,7 @@ http://127.0.0.1:5000
 
 讲法：
 
-> 项目还提供模型训练 CLI，可以生成 CNN 或 MLP 模型及训练报告；支持 Docker 部署；测试当前为 pytest -q 69 passed。整体工程重点是：Agent 调度、工具注册、LLM 与规则双模式、RAG、模型训练闭环和多层降级。
+> 项目还提供真实日线训练、历史盲测、模型报告和 Docker 部署；测试当前为 pytest -q 81 passed。整体工程重点是：Agent 调度、工具注册、LLM 与规则双模式、RAG、可验证模型实验和多层降级。
 
 最后强调：
 
@@ -240,8 +244,23 @@ http://127.0.0.1:5000
 - 工具注册：`ToolDef(name, description, parameters, handler)`。
 - 工具分组：basic、technical、full、knowledge。
 - 防幻觉：LLM 不能编造行情，必须调用工具。
+### 第 8 页：MLP 模型与历史盲测
 
-### 第 8 页：AI 使用与 Harness
+内容：
+
+- 输入：目标日前60个交易日 × OHLCV五个特征。
+- 结构：300维输入 -> 128神经元 -> 64神经元 -> 涨跌二分类。
+- 数据：贵州茅台2775条真实前复权日线。
+- 切分：70%训练、15%验证、15%测试，测试区间用于盲测。
+- 结果：训练78.26%、验证54.55%、测试47.79%。
+- 解读：存在过拟合，盲测用于审计模型，而不是证明可以炒股。
+
+讲点：
+
+> 当前答辩实际使用的是 sklearn MLP，不是CNN或LSTM。
+> 我们保留并解释低于50%的真实测试结果，重点展示数据隔离和可验证性。
+
+### 第 9 页：AI 使用与 Harness
 
 标题：AI 使用方式与自动化验收 Harness
 
@@ -258,7 +277,7 @@ http://127.0.0.1:5000
 
 > AI 的创新点不只是“用了大模型”，而是把大模型放在可控的工具调度框架中，并用 harness 验证每条关键链路和失败降级路径。
 
-### 第 9 页：创新点
+### 第 10 页：创新点
 
 内容：
 
@@ -270,18 +289,18 @@ http://127.0.0.1:5000
 - 训练报告可视化入口：模型训练不是黑箱。
 - Harness 化验收：固定命令和自动化测试验证 AI 调度链路。
 
-### 第 10 页：测试与工程质量
+### 第 11 页：测试与工程质量
 
 内容：
 
-- `pytest -q` 当前结果：69 passed。
+- `pytest -q` 当前结果：81 passed。
 - Flask 路由、Agent、工具、RAG 降级、session 校验、配置加载等均有测试。
 - Harness 覆盖固定演示链路：搜索、行情、技术指标、风险、综合分析、RAG。
 - `.env.example` 提供配置模板，真实 `.env` 不提交。
 - Docker 支持轻量部署。
 - `/health` 提供模型、LLM、RAG 状态。
 
-### 第 11 页：局限与改进
+### 第 12 页：局限与改进
 
 局限：
 
@@ -379,7 +398,7 @@ flowchart TB
     Agent --> ML[CNN/MLP 模型<br/>涨跌二分类实验]
 
     Harness[验收 Harness] --> Demo[固定 6 条演示命令]
-    Harness --> Tests[pytest 69 passed]
+    Harness --> Tests[pytest 81 passed]
     Harness --> Mock[mock 外部依赖<br/>不依赖真实网络]
     Harness --> Health[/health 状态检查]
     Harness --> Diff[git diff --check]
@@ -446,7 +465,7 @@ RAG 用来回答投资知识类问题，例如技术指标含义、风险管理�
 
 ### Q6：工程质量如何保证？
 
-当前 `pytest -q` 为 69 passed，覆盖 Agent、工具、Flask 路由、RAG 降级、session 校验、配置加载和模型训练 CLI 等核心流程。
+当前 `pytest -q` 为 81 passed，覆盖 Agent、工具、Flask 路由、RAG 降级、session 校验、真实日线训练、盲测 API、未来新闻隔离和模型资产等核心流程。
 
 ### Q7：课程要求人工智能创新，你们的 AI 使用体现在哪里？
 
@@ -480,5 +499,5 @@ PPT 和演示结尾建议保留这段：
 4. AI 使用：LLM Agent、RAG、CNN/MLP、规则基线。
 5. Harness：固定演示链路、pytest、mock、health、diff check。
 6. 特色：综合报告、模型训练闭环、ECharts。
-7. 工程质量：69 passed、Docker、`.env`、多层降级。
+7. 工程质量：81 passed、Docker、`.env`、多层降级。
 8. 边界：不构成投资建议。

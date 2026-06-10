@@ -25,6 +25,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
 from core.agent import StockAgent
+from core.blind_test import BlindTestError, BlindTestService
 from core.config import load_local_env
 from core.model_service import StockCNNService
 
@@ -44,7 +45,8 @@ app = Flask(__name__)
 
 # 全局服务实例（模块级单例，共享于所有请求）
 agent = StockAgent()
-model_service = StockCNNService(model_dir=BASE_DIR / "models")
+model_service = StockCNNService(model_dir=BASE_DIR / "models" / "blind_test")
+blind_test_service = BlindTestService(base_dir=BASE_DIR)
 
 
 @app.route("/", methods=["GET"])
@@ -215,11 +217,18 @@ def model_report():
         报告不存在 → 200 {"available": false, "message": "尚未训练模型..."}
     """
     import json as _json
-    report_path = BASE_DIR / "models" / "training_report.json"
+    report_path = BASE_DIR / "models" / "blind_test" / "training_report.json"
+    legacy_report_path = BASE_DIR / "models" / "training_report.json"
+    if not report_path.exists() and legacy_report_path.exists():
+        report_path = legacy_report_path
     if not report_path.exists():
         return jsonify({
             "available": False,
-            "message": "尚未训练模型。运行 python train_model.py --data dataset/tt.csv --model-dir models 即可。",
+            "message": (
+                "尚未训练贵州茅台真实日线模型。请先准备数据，再运行 "
+                "python train_model.py --data data/blind_test/600519_daily.csv "
+                "--model-dir models/blind_test --backend mlp --symbol 600519。"
+            ),
         })
     try:
         report = _json.loads(report_path.read_text(encoding="utf-8"))
@@ -230,6 +239,90 @@ def model_report():
         })
     report["available"] = True
     return jsonify(report)
+
+
+@app.route("/api/blind-test/config", methods=["GET"])
+def blind_test_config():
+    """返回历史盲测的股票、模型和测试区间信息。"""
+    return jsonify(blind_test_service.config())
+
+
+@app.route("/api/blind-test/challenges", methods=["POST"])
+def create_blind_test_challenge():
+    """随机或按指定测试日创建一个历史盲测挑战。"""
+    data = request.get_json(silent=True) or {}
+    session_id = (data.get("session_id") or "").strip()
+    target_date = (data.get("target_date") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        result = blind_test_service.create_challenge(session_id, target_date)
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logger.exception("创建历史盲测挑战失败")
+        return jsonify({"error": "创建历史盲测挑战失败"}), 500
+    return jsonify(result)
+
+
+@app.route("/api/blind-test/challenges/<challenge_id>/prediction", methods=["POST"])
+def submit_blind_test_prediction(challenge_id):
+    """锁定用户预测，并公开 MLP 与新闻 AI 的赛前判断。"""
+    data = request.get_json(silent=True) or {}
+    session_id = (data.get("session_id") or "").strip()
+    label = (data.get("label") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        result = blind_test_service.submit_prediction(challenge_id, session_id, label)
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logger.exception("提交历史盲测用户预测失败 id=%s", challenge_id)
+        return jsonify({"error": "提交用户预测失败"}), 500
+    return jsonify(result)
+
+
+@app.route("/api/blind-test/challenges/<challenge_id>/reveal", methods=["POST"])
+def reveal_blind_test_challenge(challenge_id):
+    """揭晓盲测目标日；同一挑战只计分一次。"""
+    data = request.get_json(silent=True) or {}
+    session_id = (data.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        result = blind_test_service.reveal(challenge_id, session_id)
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logger.exception("揭晓历史盲测挑战失败 id=%s", challenge_id)
+        return jsonify({"error": "揭晓历史盲测挑战失败"}), 500
+    return jsonify(result)
+
+
+@app.route("/api/blind-test/stats", methods=["GET"])
+def blind_test_stats():
+    """返回当前会话和全局盲测成绩。"""
+    session_id = (request.args.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        return jsonify(blind_test_service.stats(session_id))
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/blind-test/reset", methods=["POST"])
+def reset_blind_test_stats():
+    """开启当前会话的新一轮成绩，全局历史不删除。"""
+    data = request.get_json(silent=True) or {}
+    session_id = (data.get("session_id") or "").strip()
+    if not session_id:
+        return jsonify({"error": "缺少 session_id"}), 400
+    try:
+        return jsonify(blind_test_service.reset(session_id))
+    except (BlindTestError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 if __name__ == "__main__":

@@ -131,6 +131,12 @@ templates/index.html (前端 Chat UI)
 | GET | `/health` | 健康检查 (模型/LLM/RAG) |
 | GET | `/api/stock/<code>/history?days=90` | 历史K线 `{code, days, items[{date,open,high,low,close,volume}]}` |
 | GET | `/api/model/report` | 模型训练报告 `{available, backend, sample_count, ...}` |
+| GET | `/api/blind-test/config` | 历史盲测模型与测试区间 |
+| POST | `/api/blind-test/challenges` | 随机或指定日期创建盲测挑战 |
+| POST | `/api/blind-test/challenges/<id>/prediction` | 锁定用户预测并公开 MLP/新闻 AI 判断 |
+| POST | `/api/blind-test/challenges/<id>/reveal` | 揭晓真实行情并计分 |
+| GET | `/api/blind-test/stats?session_id=xxx` | 个人与全局盲测成绩 |
+| POST | `/api/blind-test/reset` | 开启新的个人统计轮次 |
 
 ## 使用示例
 
@@ -264,12 +270,45 @@ Stock_prediction_system/
 
 > 如 RAG 知识库未初始化，链路 6 会返回"知识库中未找到相关内容"（优雅降级）。
 
-## 模型训练（可选）
+## 真实日线训练与历史盲测
+
+项目内置贵州茅台 `600519` 的前复权日线快照和专用 MLP 模型。数据通过 AKShare
+调用东方财富历史行情接口获取，训练和答辩盲测均不再使用原有的未知分钟级样本。
+
+页面中的“历史盲测挑战”支持随机或指定测试日、先预测后揭晓、个人/全局计分，
+以及“下一日延续昨日方向”基线对照。同一挑战重复揭晓不会重复计分。
+
+互动模式要求用户先选择“涨/跌”，提交后才公开 MLP 行情模型和新闻 AI 的判断。
+新闻 AI 只读取目标交易日开盘前发布的离线资讯，避免使用目标日结果或未来新闻。
+用户、MLP、新闻 AI 和昨日方向基线分别统计；新闻不足或 LLM 未配置时，新闻 AI
+会明确弃权，不影响其他参与方。
+
+```bash
+# 准备真实东方财富新闻离线快照
+python scripts/prepare_blind_test_news.py
+```
+
+快照保存为 `data/blind_test/600519_news.jsonl`，答辩运行阶段不临时联网搜索。
+
+当前快照范围为 `2015-01-05 ~ 2026-06-08`，隔离测试区间为
+`2024-09-26 ~ 2026-06-08`。当前 MLP 测试准确率为 `47.79%`，训练报告中的
+多数类基线为 `44.85%`。页面盲测另行统计“昨日方向延续”基线。
+盲测用于客观验证和审计模型，不代表模型能够稳定获利。
+
+### 更新真实数据
+
+```bash
+python scripts/prepare_blind_test_data.py --start 2015-01-01
+```
+
+该步骤需要联网和 AKShare。生成 CSV 后，训练和演示均可离线进行。
 
 ### 命令行训练
 
 ```bash
-python train_model.py --data dataset/tt.csv --model-dir models
+python train_model.py --data data/blind_test/600519_daily.csv \
+  --model-dir models/blind_test --backend mlp --symbol 600519 \
+  --stock-name 贵州茅台 --data-source "AKShare / 东方财富" --adjust qfq
 ```
 
 可选参数：
@@ -280,6 +319,8 @@ python train_model.py --data dataset/tt.csv --model-dir models
 | `--model-dir` | `models` | 模型输出目录 |
 | `--epochs` | `12` | CNN 训练轮数（MLP 忽略） |
 | `--batch-size` | `32` | CNN 批次大小（MLP 忽略） |
+| `--backend` | `auto` | `auto` / `mlp` / `cnn`，答辩离线模型使用 `mlp` |
+| `--symbol` | 空 | 模型适用的股票代码 |
 
 ### 训练切分策略
 
@@ -295,7 +336,7 @@ python train_model.py --data dataset/tt.csv --model-dir models
 
 ### 训练报告
 
-训练完成后生成 `models/training_report.json`：
+训练完成后生成 `models/blind_test/training_report.json`：
 
 ```json
 {
@@ -326,7 +367,7 @@ python train_model.py --data dataset/tt.csv --model-dir models
 - CNN/MLP 均为简单架构，不构成投资策略；回测结果不代表未来表现
 - 预测输出为「涨/跌」二分类 + 置信度，不是确定性买卖信号
 
-如已安装 TensorFlow，将优先训练 CNN；如 TensorFlow 不可用，将自动降级为 sklearn MLP。模型文件生成到 `models/` 目录：`stock_cnn.keras`（或 `stock_mlp.joblib`）+ `scaler.json` + `meta.json` + `training_report.json`。
+未指定后端时，如已安装 TensorFlow 将训练 CNN，否则使用 sklearn MLP。盲测演示显式选择 MLP，以避免答辩机器环境差异。普通聊天中的模型预测目前仅支持 `600519`，其他股票需训练对应模型。
 
 ## 常见问题
 
@@ -343,7 +384,7 @@ A: 配置 `OPENAI_API_KEY` 环境变量，兼容 OpenAI、DeepSeek、通义千�
 A: `pip install akshare`，设置环境变量 `USE_AKSHARE=1`。
 
 **Q: 模型预测为什么显示"简易版"？**
-A: 尚未训练模型时，系统自动降级为均线交叉判断。运行上面的训练命令即可。
+A: 贵州茅台专用模型不可用时，系统会降级为均线交叉判断。其他股票不会跨标的复用该模型。
 
 **Q: RAG 知识库如何构建？**
 A: 在 `data/knowledge/` 下放置 `.md` 文件，首次知识检索时自动构建索引。也可以启动后首次询问投资知识触发构建。

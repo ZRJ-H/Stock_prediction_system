@@ -53,6 +53,8 @@ dataset/*.csv
 # RAG runtime
 data/knowledge_index.json
 data/memory/
+data/blind_test/*.sqlite3
+data/blind_test/*.sqlite3-*
 
 # Logs
 *.log

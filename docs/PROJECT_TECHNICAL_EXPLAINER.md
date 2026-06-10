@@ -30,6 +30,7 @@
 | 用户偏好 | `关注 600519` | `core/memory.py` |
 | Docker 部署 | `docker build ...` | `Dockerfile` |
 | LLM 配置 | `.env` / 环境变量 | `core/config.py` + `core/llm_service.py` |
+| MLP 模型说明 | 模型结构、输入输出与结果解读 | `docs/MLP_DEFENSE_NOTES.md` |
 
 ## 3. 系统架构
 
@@ -198,6 +199,9 @@ RAG 用于回答投资知识类问题，例如：
 | TensorFlow CNN | 已安装 TensorFlow | 使用 Conv1D 提取时间序列局部模式 |
 | sklearn MLP | TensorFlow 不可用 | 自动降级为多层感知机，便于轻量演示 |
 
+当前贵州茅台历史盲测明确使用 sklearn MLP：60日 × 5个OHLCV特征被展开为300维输入，经过128和64神经元的两个隐藏层，输出上涨/下跌类别。完整答辩说明见
+[`MLP_DEFENSE_NOTES.md`](MLP_DEFENSE_NOTES.md)。
+
 训练完成后生成：
 
 - `models/stock_cnn.keras` 或 `models/stock_mlp.joblib`
@@ -280,7 +284,7 @@ Docker 镜像默认只包含轻量基础依赖，不包含 TensorFlow 等重依�
 
 ## 12. 测试与工程质量
 
-当前测试状态：`pytest -q` 为 `69 passed`。
+当前测试状态：`pytest -q` 为 `81 passed`。
 
 测试覆盖重点包括：
 

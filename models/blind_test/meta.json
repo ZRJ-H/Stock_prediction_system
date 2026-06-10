@@ -1,0 +1,18 @@
+{
+  "window_size": 60,
+  "feature_columns": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "vol"
+  ],
+  "backend": "sklearn_mlp_fallback",
+  "symbol": "600519",
+  "stock_name": "贵州茅台",
+  "data_source": "AKShare / 东方财富",
+  "adjust": "qfq",
+  "snapshot_date": "2026-06-08",
+  "data_file": "data/blind_test/600519_daily.csv",
+  "sklearn_version": "1.8.0"
+}

@@ -64,6 +64,7 @@ class StockCNNService:
         model_dir: str | Path,
         feature_columns: List[str] | None = None,
         window_size: int = 60,
+        backend: str = "auto",
     ) -> None:
         """初始化模型服务。
 
@@ -81,6 +82,9 @@ class StockCNNService:
 
         self.feature_columns = feature_columns or ["open", "high", "low", "close", "vol"]
         self.window_size = window_size
+        if backend not in {"auto", "mlp", "cnn"}:
+            raise ValueError("backend 必须是 auto、mlp 或 cnn。")
+        self.backend = backend
         self.model = None        # 训练/加载后的模型实例
         self.scaler: MinMaxFeatureScaler | None = None
 
@@ -148,6 +152,7 @@ class StockCNNService:
         meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         self.window_size = int(meta["window_size"])
         self.feature_columns = list(meta["feature_columns"])
+        self.backend = "cnn" if meta.get("backend") == "tensorflow_cnn" else "mlp"
 
     def train(self, df: pd.DataFrame, epochs: int = 12, batch_size: int = 32) -> Dict[str, float]:
         """训练模型并持久化到磁盘。
@@ -173,7 +178,10 @@ class StockCNNService:
         )
 
         # 2. 根据可用后段选择模型训练
-        if HAS_TF:
+        use_cnn = self.backend == "cnn" or (self.backend == "auto" and HAS_TF)
+        if use_cnn and not HAS_TF:
+            raise RuntimeError("已指定 CNN 后端，但当前环境未安装 TensorFlow。")
+        if use_cnn:
             model = self._build_model()
             model.fit(
                 x_train,
@@ -284,7 +292,10 @@ class StockCNNService:
             return "N/A"
 
         # 5. 训练模型
-        if HAS_TF:
+        use_cnn = self.backend == "cnn" or (self.backend == "auto" and HAS_TF)
+        if use_cnn and not HAS_TF:
+            raise RuntimeError("已指定 CNN 后端，但当前环境未安装 TensorFlow。")
+        if use_cnn:
             model = self._build_model()
             model.fit(
                 x_tr, y_tr,

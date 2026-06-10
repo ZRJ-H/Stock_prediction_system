@@ -198,16 +198,17 @@ $env:OPENAI_MODEL="qwen2.5:7b"
 python train_model.py --help
 ```
 
-### 7.2 开始训练
+### 7.2 准备真实日线并开始训练
 
 ```bash
-python train_model.py --data dataset/tt.csv --model-dir models
+python scripts/prepare_blind_test_data.py --start 2015-01-01
+python train_model.py --data data/blind_test/600519_daily.csv --model-dir models/blind_test --backend mlp --symbol 600519 --stock-name 贵州茅台 --data-source "AKShare / 东方财富" --adjust qfq
 ```
 
 **输出示例**：
 
 ```
-训练完成。报告已保存到 models\training_report.json
+训练完成。报告已保存到 models\blind_test\training_report.json
 {
   "backend": "sklearn_mlp_fallback",
   "sample_count": 940,
@@ -224,10 +225,10 @@ python train_model.py --data dataset/tt.csv --model-dir models
 
 ```bash
 # Windows
-type models\training_report.json
+type models\blind_test\training_report.json
 
 # Linux/macOS
-cat models/training_report.json
+cat models/blind_test/training_report.json
 ```
 
 ### 7.4 验证预测功能
@@ -242,7 +243,39 @@ cat models/training_report.json
 
 ---
 
-## 9. 常见问题与降级说明
+## 9. 历史盲测挑战
+
+页面顶部展开“历史盲测挑战”面板：
+
+互动演示顺序：
+
+1. 随机抽取或指定一个隔离测试区间交易日。
+2. 阅读此前 60 日行情和目标日开盘前可获得的真实资讯。
+3. 选择“我猜涨”或“我猜跌”，提交后答案不可修改。
+4. 页面公开用户、MLP 行情模型和新闻 AI 的预测。
+5. 点击“揭晓结果”，比较三方和昨日方向基线的成绩。
+
+> 新闻 AI 使用提前保存的东方财富真实新闻快照。后端只允许
+> `发布时间 < 目标日 09:30` 的资讯进入提示词，防止未来信息泄漏。
+> 新闻不足或 LLM 离线时新闻 AI 弃权，其他玩法仍正常运行。
+
+1. 点击“随机抽取”，或在 `2024-09-26 ~ 2026-06-08` 内选择交易日后点击“指定日期”。
+2. 系统只展示目标日前60个交易日，模型先给出方向与置信度。
+3. 点击“揭晓结果”，图表补充目标日并显示实际涨跌幅。
+4. 观察个人、全局成绩及昨日方向基线。
+5. “重置个人成绩”会开启新一轮个人统计，全局历史保留。
+
+答辩讲法：
+
+> 普通预测无法现场验证。本系统使用真实历史日线并严格隔离测试区间，
+> 让模型先预测、再揭晓真实行情。当前测试准确率为47.79%，
+> 该功能用于审计模型能力，而不是包装模型必然有效。
+
+CSV、模型和训练报告已随项目保存，答辩现场无需联网。
+
+---
+
+## 10. 常见问题与降级说明
 
 ### Q: 无网络时行情/K线失败怎么办？
 
@@ -266,15 +299,15 @@ cat models/training_report.json
 
 ### Q: 模型预测为什么显示"简易版"？
 
-运行 `python train_model.py` 训练模型即可。训练后预测输出包含 CNN/MLP 置信度。
+运行上面的真实日线训练命令即可。训练后预测输出包含 MLP 置信度。
 
 ---
 
-## 10. 测试验证
+## 11. 测试验证
 
 ```bash
 pytest -q
-# 预期：69 passed
+# 预期：81 passed
 ```
 
 ---

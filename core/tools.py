@@ -151,7 +151,7 @@ def _get_model_service():
     from pathlib import Path
 
     BASE = Path(__file__).resolve().parent.parent
-    svc = StockCNNService(model_dir=BASE / "models")
+    svc = StockCNNService(model_dir=BASE / "models" / "blind_test")
     if svc.has_trained_model():
         svc.load()
     return svc
@@ -162,6 +162,12 @@ def _tool_predict_stock(code: str) -> str:
 
     Fallback：模型未训练时使用简易均线交叉判断（MA5 vs MA20）。
     """
+    if code != "600519":
+        return (
+            f"当前真实日线模型仅针对贵州茅台(600519)训练，不能用于 {code}。"
+            "如需预测其他股票，请先使用对应股票的历史日线重新训练模型。"
+        )
+
     q = get_realtime_quote(code)
     name = q.name if q else code
 

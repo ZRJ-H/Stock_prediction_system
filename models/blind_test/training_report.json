@@ -1,0 +1,27 @@
+{
+  "backend": "sklearn_mlp_fallback",
+  "sample_count": 2715,
+  "window_size": 60,
+  "train_accuracy": 0.7826,
+  "val_accuracy": 0.5455,
+  "test_accuracy": 0.4779,
+  "baseline_accuracy": 0.4485,
+  "train_start": "2015-04-07",
+  "train_end": "2023-01-19",
+  "val_start": "2023-01-20",
+  "val_end": "2024-09-25",
+  "test_start": "2024-09-26",
+  "test_end": "2026-06-08",
+  "model_files": [
+    "stock_mlp.joblib",
+    "scaler.json",
+    "meta.json"
+  ],
+  "symbol": "600519",
+  "stock_name": "贵州茅台",
+  "data_source": "AKShare / 东方财富",
+  "adjust": "qfq",
+  "snapshot_date": "2026-06-08",
+  "data_file": "data/blind_test/600519_daily.csv",
+  "sklearn_version": "1.8.0"
+}

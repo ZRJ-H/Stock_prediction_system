@@ -17,6 +17,9 @@
   <title>股票分析助手</title>
   <!-- ECharts CDN（图表可视化） -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <!-- Markdown 渲染与 HTML 安全清洗 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
   <style>
     /* ── 全局重置 ── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -93,6 +96,74 @@
     .report-item .value { font-weight: 600; color: #1f2937; }
     .report-empty { font-size: 12px; color: #9ca3af; padding: 8px 0; text-align: center; }
 
+    /* ── 历史盲测挑战 ── */
+    .blind-panel {
+      max-width: 800px; width: 100%; margin: 0 auto; background: #fff;
+      border-bottom: 1px solid #e5e7eb; padding: 12px 16px;
+    }
+    .blind-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .blind-title { font-size: 14px; font-weight: 700; color: #111827; }
+    .blind-subtitle { margin-top: 2px; font-size: 11px; color: #6b7280; }
+    .blind-toggle {
+      border: 1px solid #d1d5db; background: #fff; border-radius: 8px;
+      padding: 5px 10px; color: #374151; cursor: pointer;
+    }
+    .blind-body { display: none; padding-top: 12px; }
+    .blind-panel.expanded .blind-body { display: block; }
+    .blind-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .blind-controls input {
+      padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 8px; color: #374151;
+    }
+    .blind-controls button {
+      border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer;
+      background: #2563eb; color: #fff;
+    }
+    .blind-controls button.secondary { background: #eef2ff; color: #3730a3; }
+    .blind-controls button.danger { background: #fff1f2; color: #be123c; }
+    .blind-controls button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .blind-status { margin-top: 9px; font-size: 12px; color: #6b7280; }
+    .blind-choice { display: none; margin-top: 10px; padding: 12px; border-radius: 10px; background: #f8fafc; }
+    .blind-choice strong { display: block; margin-bottom: 8px; font-size: 13px; color: #334155; }
+    .blind-choice button {
+      border: 0; border-radius: 8px; padding: 9px 18px; margin-right: 8px;
+      color: #fff; cursor: pointer; font-weight: 600;
+    }
+    .blind-choice .up { background: #dc2626; }
+    .blind-choice .down { background: #16a34a; }
+    .blind-choice button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .blind-contenders {
+      display: none; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px; margin-top: 10px;
+    }
+    .blind-contender { padding: 10px 12px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .blind-contender strong { display: block; font-size: 12px; color: #64748b; }
+    .blind-contender span { display: block; margin-top: 5px; font-size: 14px; font-weight: 700; color: #0f172a; }
+    .blind-contender.correct { border-color: #86efac; background: #f0fdf4; }
+    .blind-contender.wrong { border-color: #fda4af; background: #fff1f2; }
+    .blind-news { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #fffbeb; }
+    .blind-news-title { font-size: 12px; font-weight: 700; color: #92400e; }
+    .blind-news-list { margin: 7px 0 0; padding-left: 20px; font-size: 12px; color: #57534e; }
+    .blind-news-list li { margin: 5px 0; line-height: 1.45; }
+    .blind-news-reasons { margin-top: 8px; font-size: 12px; color: #475569; line-height: 1.5; }
+    .blind-result {
+      display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+      font-size: 13px; font-weight: 600;
+    }
+    .blind-result.correct { display: block; background: #ecfdf5; color: #065f46; }
+    .blind-result.wrong { display: block; background: #fff1f2; color: #9f1239; }
+    .blind-chart { display: none; width: 100%; height: 280px; margin-top: 8px; }
+    .blind-stats {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px; margin-top: 10px;
+    }
+    .blind-stat { padding: 8px 10px; border-radius: 8px; background: #f9fafb; font-size: 12px; }
+    .blind-stat strong { display: block; margin-bottom: 3px; color: #374151; }
+    .blind-stat span { color: #6b7280; }
+    @media (max-width: 560px) {
+      .blind-stats { grid-template-columns: 1fr; }
+      .blind-contenders { grid-template-columns: 1fr; }
+    }
+
     /* ── 聊天区域 ── */
     .chat-container {
       flex: 1; overflow-y: auto; padding: 16px; max-width: 800px; width: 100%;
@@ -121,6 +192,51 @@
     }
     .msg.user .bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
     .msg.assistant .bubble { background: #fff; border: 1px solid #e5e7eb; border-bottom-left-radius: 4px; }
+
+    /* AI 回复 Markdown 排版 */
+    .msg.assistant .markdown-body { white-space: normal; }
+    .markdown-body > :first-child { margin-top: 0; }
+    .markdown-body > :last-child { margin-bottom: 0; }
+    .markdown-body p { margin: 0 0 10px; }
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3,
+    .markdown-body h4 {
+      margin: 16px 0 8px; color: #111827; line-height: 1.35;
+    }
+    .markdown-body h1 { font-size: 20px; }
+    .markdown-body h2 { font-size: 18px; }
+    .markdown-body h3 { font-size: 16px; }
+    .markdown-body h4 { font-size: 14px; }
+    .markdown-body ul,
+    .markdown-body ol { margin: 8px 0 12px; padding-left: 24px; }
+    .markdown-body li { margin: 4px 0; }
+    .markdown-body li > p { margin: 0; }
+    .markdown-body blockquote {
+      margin: 10px 0; padding: 8px 12px; border-left: 4px solid #93c5fd;
+      background: #eff6ff; color: #4b5563;
+    }
+    .markdown-body code {
+      padding: 2px 5px; border-radius: 4px; background: #f3f4f6;
+      color: #be123c; font-family: Consolas, "Courier New", monospace; font-size: 0.9em;
+    }
+    .markdown-body pre {
+      margin: 10px 0; padding: 12px; overflow-x: auto; border-radius: 8px;
+      background: #111827; color: #f9fafb; line-height: 1.5;
+    }
+    .markdown-body pre code { padding: 0; background: transparent; color: inherit; }
+    .markdown-body table {
+      display: block; width: 100%; margin: 10px 0; overflow-x: auto;
+      border-collapse: collapse;
+    }
+    .markdown-body th,
+    .markdown-body td {
+      padding: 7px 10px; border: 1px solid #d1d5db; text-align: left; white-space: nowrap;
+    }
+    .markdown-body th { background: #f3f4f6; font-weight: 600; }
+    .markdown-body hr { margin: 14px 0; border: 0; border-top: 1px solid #e5e7eb; }
+    .markdown-body a { color: #2563eb; text-decoration: none; }
+    .markdown-body a:hover { text-decoration: underline; }
 
     /* ── 输入区域 ── */
     .input-area {
@@ -161,6 +277,8 @@
   <div class="header">
     <h1>股票分析助手</h1>
     <span id="modelStatus" class="status off">检测中...</span>
+    <button class="config-link" id="modelReportBtn" onclick="toggleReport()" style="display:none"
+      title="查看离线模型训练与评估结果">模型报告</button>
     <span id="llmStatus" class="status off">LLM 检测中...</span>
     <button class="config-link" id="llmGuideBtn" onclick="toggleLlmGuide()" title="查看本地 LLM 配置步骤">配置指南</button>
     <span id="ragStatus" class="status off">RAG</span>
@@ -185,6 +303,54 @@ OPENAI_MODEL=deepseek-chat</code>
     </div>
   </div>
 
+  <!-- ── 历史盲测挑战 ── -->
+  <section class="blind-panel" id="blindPanel">
+    <div class="blind-header">
+      <div>
+        <div class="blind-title">历史盲测挑战</div>
+        <div class="blind-subtitle" id="blindSubtitle">检测贵州茅台真实日线模型...</div>
+      </div>
+      <button class="blind-toggle" onclick="toggleBlindPanel()">展开</button>
+    </div>
+    <div class="blind-body">
+      <div class="blind-controls">
+        <input id="blindDate" type="date" title="留空可随机抽取测试日" />
+        <button id="blindRandomBtn" onclick="startBlindChallenge(true)">随机抽取</button>
+        <button id="blindDateBtn" class="secondary" onclick="startBlindChallenge(false)">指定日期</button>
+        <button id="blindRevealBtn" class="secondary" onclick="revealBlindChallenge()" disabled>揭晓结果</button>
+        <button class="danger" onclick="resetBlindStats()">重置个人成绩</button>
+      </div>
+      <div class="blind-status" id="blindStatus">日期只能选择模型未见过的隔离测试区间。</div>
+      <div class="blind-choice" id="blindChoice">
+        <strong>轮到你了：你认为目标交易日会涨还是跌？</strong>
+        <button class="up" onclick="submitBlindPrediction('涨')">我猜涨</button>
+        <button class="down" onclick="submitBlindPrediction('跌')">我猜跌</button>
+      </div>
+      <div class="blind-contenders" id="blindContenders">
+        <div class="blind-contender" id="blindUserCard"><strong>你的预测</strong><span id="blindUserPrediction">待选择</span></div>
+        <div class="blind-contender" id="blindModelCard"><strong>MLP 行情模型</strong><span id="blindModelPrediction">已锁定，提交后公开</span></div>
+        <div class="blind-contender" id="blindNewsCard"><strong>新闻 AI</strong><span id="blindNewsPrediction">已锁定，提交后公开</span></div>
+      </div>
+      <div class="blind-news" id="blindNews">
+        <div class="blind-news-title">目标日开盘前可获得的资讯</div>
+        <ul class="blind-news-list" id="blindNewsList"></ul>
+        <div class="blind-news-reasons" id="blindNewsReasons"></div>
+      </div>
+      <div class="blind-chart" id="blindChart"></div>
+      <div class="blind-result" id="blindResult"></div>
+      <div class="blind-stats">
+        <div class="blind-stat">
+          <strong>本轮个人成绩</strong>
+          <span id="blindPersonalStats">用户 0/0 · MLP 0/0 · 新闻AI 0/0 · 基线 0/0</span>
+        </div>
+        <div class="blind-stat">
+          <strong>全局累计成绩</strong>
+          <span id="blindGlobalStats">用户 0/0 · MLP 0/0 · 新闻AI 0/0 · 基线 0/0</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ── ECharts 图表面板（默认隐藏，检测到股票代码后显示） ── -->
   <div class="chart-panel" id="chartPanel">
     <div class="chart-header">
@@ -202,7 +368,6 @@ OPENAI_MODEL=deepseek-chat</code>
       <button onclick="hideReport()" title="关闭报告">&times;</button>
     </div>
     <div class="report-grid" id="reportGrid"></div>
-    <div class="report-empty" id="reportEmpty" style="display:none"></div>
   </div>
 
   <!-- ── 快捷提问按钮 ── -->
@@ -242,6 +407,325 @@ OPENAI_MODEL=deepseek-chat</code>
     }
 
     // ═══════════════════════════════════════════════════════
+    // 历史盲测挑战
+    // ═══════════════════════════════════════════════════════
+    let blindConfig = null;
+    let blindChallenge = null;
+    let blindChartInstance = null;
+    let blindHistory = [];
+
+    function toggleBlindPanel() {
+      const panel = document.getElementById('blindPanel');
+      panel.classList.toggle('expanded');
+      panel.querySelector('.blind-toggle').textContent =
+        panel.classList.contains('expanded') ? '收起' : '展开';
+      if (panel.classList.contains('expanded') && blindChartInstance) {
+        setTimeout(function() { blindChartInstance.resize(); }, 0);
+      }
+    }
+
+    function blindRequest(url, options) {
+      return fetch(url, options).then(function(r) {
+        return r.json().then(function(data) {
+          if (!r.ok || data.error) throw new Error(data.error || '请求失败');
+          return data;
+        });
+      });
+    }
+
+    function escapeHtml(value) {
+      const element = document.createElement('div');
+      element.textContent = String(value);
+      return element.innerHTML;
+    }
+
+    function setBlindButtons(disabled) {
+      document.getElementById('blindRandomBtn').disabled = disabled;
+      document.getElementById('blindDateBtn').disabled = disabled;
+    }
+
+    function loadBlindConfig() {
+      blindRequest('/api/blind-test/config')
+        .then(function(config) {
+          blindConfig = config;
+          const subtitle = document.getElementById('blindSubtitle');
+          if (!config.available) {
+            subtitle.textContent = config.message || '盲测模型不可用';
+            setBlindButtons(true);
+            return;
+          }
+          subtitle.textContent = config.stock_name + '(' + config.symbol + ') · 测试区间 ' +
+            config.test_start + ' 至 ' + config.test_end;
+          const dateInput = document.getElementById('blindDate');
+          dateInput.min = config.test_start;
+          dateInput.max = config.test_end;
+          loadBlindStats();
+        })
+        .catch(function(e) {
+          document.getElementById('blindSubtitle').textContent = e.message;
+          setBlindButtons(true);
+        });
+    }
+
+    function startBlindChallenge(randomMode) {
+      if (!blindConfig || !blindConfig.available) return;
+      const dateInput = document.getElementById('blindDate');
+      const targetDate = randomMode ? '' : dateInput.value;
+      if (!randomMode && !targetDate) {
+        document.getElementById('blindStatus').textContent = '请先选择测试区间内的交易日。';
+        return;
+      }
+      setBlindButtons(true);
+      document.getElementById('blindRevealBtn').disabled = true;
+      document.getElementById('blindResult').className = 'blind-result';
+      document.getElementById('blindResult').textContent = '';
+      document.getElementById('blindChoice').style.display = 'none';
+      document.getElementById('blindContenders').style.display = 'none';
+      document.getElementById('blindNews').style.display = 'none';
+      ['blindUserCard', 'blindModelCard', 'blindNewsCard'].forEach(function(id) {
+        document.getElementById(id).className = 'blind-contender';
+      });
+      document.getElementById('blindStatus').textContent = '正在生成盲测挑战...';
+
+      blindRequest('/api/blind-test/challenges', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sessionId, target_date: targetDate})
+      })
+      .then(function(data) {
+        blindChallenge = data;
+        blindHistory = data.history.slice();
+        dateInput.value = data.target_date;
+        renderBlindNews(data.news_items || []);
+        document.getElementById('blindChoice').style.display = data.submitted ? 'none' : 'block';
+        document.getElementById('blindContenders').style.display = 'grid';
+        document.getElementById('blindUserPrediction').textContent =
+          data.submitted ? data.user_prediction : '请先选择涨或跌';
+        document.getElementById('blindModelPrediction').textContent =
+          data.submitted ? '加载中' : '已锁定，提交后公开';
+        document.getElementById('blindNewsPrediction').textContent =
+          data.submitted ? '加载中' : '已锁定，提交后公开';
+        document.getElementById('blindStatus').textContent = data.submitted
+          ? '你的预测已经锁定，可以揭晓真实行情。'
+          : '已隐藏 ' + data.target_date + ' 的真实行情。请先提交你的判断。';
+        renderBlindChart(blindHistory, data.target_date, false);
+        document.getElementById('blindRevealBtn').disabled = !data.submitted || data.revealed;
+        if (data.submitted) renderBlindPredictions(data);
+        if (data.revealed && data.result) {
+          if (data.target_bar) {
+            renderBlindChart(blindHistory.concat([data.target_bar]), data.target_date, true);
+          }
+          renderBlindResult(data.result);
+        }
+      })
+      .catch(function(e) {
+        document.getElementById('blindStatus').textContent = e.message;
+      })
+      .finally(function() { setBlindButtons(false); });
+    }
+
+    function renderBlindNews(items) {
+      const panel = document.getElementById('blindNews');
+      const list = document.getElementById('blindNewsList');
+      panel.style.display = 'block';
+      document.getElementById('blindNewsReasons').textContent = '';
+      if (!items.length) {
+        list.innerHTML = '<li>目标日前14天没有合规离线资讯，新闻 AI 将弃权。</li>';
+        return;
+      }
+      list.innerHTML = items.map(function(item) {
+        const title = escapeHtml(item.title || '');
+        const source = escapeHtml(item.source || '未知来源');
+        const time = escapeHtml(item.published_at || '');
+        return '<li>[' + time + '] ' + title + '（' + source + '）</li>';
+      }).join('');
+    }
+
+    function submitBlindPrediction(label) {
+      if (!blindChallenge || blindChallenge.submitted) return;
+      document.querySelectorAll('#blindChoice button').forEach(function(button) {
+        button.disabled = true;
+      });
+      document.getElementById('blindStatus').textContent = '正在锁定你的预测并生成新闻 AI 判断...';
+      blindRequest('/api/blind-test/challenges/' + blindChallenge.id + '/prediction', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sessionId, label: label})
+      })
+      .then(function(data) {
+        blindChallenge = data;
+        document.getElementById('blindChoice').style.display = 'none';
+        renderBlindPredictions(data);
+        document.getElementById('blindRevealBtn').disabled = false;
+        document.getElementById('blindStatus').textContent =
+          '三方预测已经锁定。现在可以揭晓 ' + data.target_date + ' 的真实结果。';
+      })
+      .catch(function(e) {
+        document.querySelectorAll('#blindChoice button').forEach(function(button) {
+          button.disabled = false;
+        });
+        document.getElementById('blindStatus').textContent = e.message;
+      });
+    }
+
+    function renderBlindPredictions(data) {
+      document.getElementById('blindContenders').style.display = 'grid';
+      document.getElementById('blindUserPrediction').textContent = data.user_prediction;
+      document.getElementById('blindModelPrediction').textContent =
+        data.model_prediction.label + ' · 置信度 ' +
+        (data.model_prediction.confidence * 100).toFixed(1) + '%';
+      const news = data.news_prediction || {status: 'abstained', message: '新闻 AI 弃权'};
+      const newsEl = document.getElementById('blindNewsPrediction');
+      const reasonsEl = document.getElementById('blindNewsReasons');
+      if (news.status === 'ready') {
+        newsEl.textContent = news.label + ' · 置信度 ' + (news.confidence * 100).toFixed(1) + '%';
+        const reasons = (news.reasons || []).map(function(reason) {
+          return '• ' + reason;
+        }).join(' ');
+        reasonsEl.textContent = '新闻 AI 理由：' + (reasons || '未提供理由') +
+          (news.risk ? ' 风险：' + news.risk : '');
+      } else {
+        newsEl.textContent = '弃权';
+        reasonsEl.textContent = news.message || '新闻 AI 本轮不可用。';
+      }
+    }
+
+    function revealBlindChallenge() {
+      if (!blindChallenge) return;
+      const button = document.getElementById('blindRevealBtn');
+      button.disabled = true;
+      document.getElementById('blindStatus').textContent = '正在揭晓真实行情...';
+      blindRequest('/api/blind-test/challenges/' + blindChallenge.id + '/reveal', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sessionId})
+      })
+      .then(function(data) {
+        renderBlindChart(blindHistory.concat([data.target_bar]), blindChallenge.target_date, true);
+        renderBlindResult(data.result);
+        renderBlindStats(data.stats);
+        document.getElementById('blindStatus').textContent =
+          '结果已揭晓。本挑战重复查看不会重复计分。';
+      })
+      .catch(function(e) {
+        button.disabled = false;
+        document.getElementById('blindStatus').textContent = e.message;
+      });
+    }
+
+    function renderBlindResult(result) {
+      const el = document.getElementById('blindResult');
+      el.className = 'blind-result ' + (result.user_correct ? 'correct' : 'wrong');
+      el.textContent =
+        '实际' + result.actual_label + ' ' + (result.actual_return * 100).toFixed(2) + '%' +
+        ' · 你' + (result.user_correct ? '命中' : '未命中') +
+        ' · MLP' + (result.model_correct ? '命中' : '未命中') +
+        ' · 新闻AI' + (result.news_correct == null ? '弃权' : (result.news_correct ? '命中' : '未命中')) +
+        ' · 基线' + (result.baseline_correct ? '命中' : '未命中');
+      document.getElementById('blindUserCard').classList.add(result.user_correct ? 'correct' : 'wrong');
+      document.getElementById('blindModelCard').classList.add(result.model_correct ? 'correct' : 'wrong');
+      if (result.news_correct != null) {
+        document.getElementById('blindNewsCard').classList.add(result.news_correct ? 'correct' : 'wrong');
+      }
+    }
+
+    function formatBlindScore(stats) {
+      return '用户 ' + stats.user_hits + '/' + stats.total +
+        ' · MLP ' + stats.model_hits + '/' + stats.total +
+        ' · 新闻AI ' + stats.news_hits + '/' + stats.news_total +
+        ' · 基线 ' + stats.baseline_hits + '/' + stats.total;
+    }
+
+    function renderBlindStats(stats) {
+      document.getElementById('blindPersonalStats').textContent = formatBlindScore(stats.personal);
+      document.getElementById('blindGlobalStats').textContent = formatBlindScore(stats.global);
+    }
+
+    function loadBlindStats() {
+      blindRequest('/api/blind-test/stats?session_id=' + encodeURIComponent(sessionId))
+        .then(renderBlindStats)
+        .catch(function() {});
+    }
+
+    function resetBlindStats() {
+      blindRequest('/api/blind-test/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sessionId})
+      })
+      .then(function(stats) {
+        blindChallenge = null;
+        blindHistory = [];
+        document.getElementById('blindRevealBtn').disabled = true;
+        document.getElementById('blindDate').value = '';
+        document.getElementById('blindChoice').style.display = 'none';
+        document.getElementById('blindContenders').style.display = 'none';
+        document.getElementById('blindNews').style.display = 'none';
+        document.getElementById('blindResult').className = 'blind-result';
+        document.getElementById('blindChart').style.display = 'none';
+        if (blindChartInstance) {
+          blindChartInstance.dispose();
+          blindChartInstance = null;
+        }
+        renderBlindStats(stats);
+        document.getElementById('blindStatus').textContent = '已开启新的个人统计轮次，全局成绩保留。';
+      })
+      .catch(function(e) {
+        document.getElementById('blindStatus').textContent = e.message;
+      });
+    }
+
+    function renderBlindChart(items, targetDate, revealed) {
+      const box = document.getElementById('blindChart');
+      if (!window.echarts) {
+        document.getElementById('blindStatus').textContent = 'ECharts 未加载，预测仍可正常揭晓。';
+        return;
+      }
+      box.style.display = 'block';
+      if (!blindChartInstance) {
+        blindChartInstance = echarts.init(box);
+        window.addEventListener('resize', function() {
+          if (blindChartInstance) blindChartInstance.resize();
+        });
+      }
+      blindChartInstance.setOption({
+        tooltip: {trigger: 'axis'},
+        grid: {left: 55, right: 18, top: 25, bottom: 45},
+        xAxis: {
+          type: 'category',
+          data: items.map(function(i) { return i.date; }),
+          axisLabel: {fontSize: 10}
+        },
+        yAxis: {
+          type: 'value',
+          scale: true,
+          axisLabel: {fontSize: 10},
+          splitLine: {lineStyle: {color: '#f0f0f0'}}
+        },
+        dataZoom: [{type: 'inside'}, {type: 'slider', height: 18, bottom: 5}],
+        series: [{
+          name: '收盘价',
+          type: 'line',
+          data: items.map(function(i) { return i.close; }),
+          symbol: function(value, params) {
+            return revealed && params.dataIndex === items.length - 1 ? 'circle' : 'none';
+          },
+          symbolSize: 9,
+          lineStyle: {color: '#2563eb', width: 2},
+          itemStyle: {color: revealed ? '#dc2626' : '#2563eb'},
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            label: {formatter: '已揭晓 ' + targetDate},
+            data: revealed ? [{xAxis: items.length - 1}] : []
+          }
+        }]
+      }, true);
+    }
+
+    loadBlindConfig();
+
+    // ═══════════════════════════════════════════════════════
     // 健康检查：拉取后端状态并更新状态指示灯
     // ═══════════════════════════════════════════════════════
     fetch('/health')
@@ -259,26 +743,28 @@ OPENAI_MODEL=deepseek-chat</code>
     // ═══════════════════════════════════════════════════════
     // 模型训练报告加载
     // ═══════════════════════════════════════════════════════
+    var modelReportData = null;
+
     fetch('/api/model/report')
       .then(r => r.json())
       .then(d => {
         if (d.available) {
+          modelReportData = d;
           renderReport(d);
+          document.getElementById('modelReportBtn').style.display = '';
         } else {
-          showReportEmpty(d.message);
+          document.getElementById('modelReportBtn').style.display = 'none';
+          hideReport();
         }
       })
       .catch(function() {
-        showReportEmpty('报告加载失败');
+        document.getElementById('modelReportBtn').style.display = 'none';
+        hideReport();
       });
 
-    /** 渲染完整的训练报告面板 */
+    /** 准备训练报告内容，用户点击入口后再展开面板 */
     function renderReport(r) {
-      var panel = document.getElementById('reportPanel');
       var grid = document.getElementById('reportGrid');
-      var empty = document.getElementById('reportEmpty');
-      empty.style.display = 'none';
-      panel.classList.add('visible');
 
       var items = [
         {label: '后端', value: r.backend === 'tensorflow_cnn' ? 'TensorFlow CNN' : 'sklearn MLP'},
@@ -309,18 +795,19 @@ OPENAI_MODEL=deepseek-chat</code>
       });
     }
 
-    /** 显示报告不可用提示 */
-    function showReportEmpty(msg) {
+    /** 展开或收起训练报告 */
+    function toggleReport() {
+      if (!modelReportData) return;
       var panel = document.getElementById('reportPanel');
-      var empty = document.getElementById('reportEmpty');
-      panel.classList.add('visible');
-      empty.style.display = '';
-      empty.textContent = msg || '尚未训练模型。';
+      var button = document.getElementById('modelReportBtn');
+      var visible = panel.classList.toggle('visible');
+      button.textContent = visible ? '收起报告' : '模型报告';
     }
 
     /** 关闭报告面板 */
     function hideReport() {
       document.getElementById('reportPanel').classList.remove('visible');
+      document.getElementById('modelReportBtn').textContent = '模型报告';
     }
 
     /** 展开/关闭 LLM 配置指南 */
@@ -348,7 +835,14 @@ OPENAI_MODEL=deepseek-chat</code>
 
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
-      bubble.textContent = text;
+      if (role === 'assistant' && window.marked && window.DOMPurify) {
+        bubble.classList.add('markdown-body');
+        const rendered = marked.parse(text, {breaks: true, gfm: true});
+        bubble.innerHTML = DOMPurify.sanitize(rendered);
+      } else {
+        // 用户输入和依赖加载失败时始终按纯文本展示。
+        bubble.textContent = text;
+      }
 
       div.appendChild(role === 'user' ? bubble : avatar);
       div.appendChild(role === 'user' ? avatar : bubble);

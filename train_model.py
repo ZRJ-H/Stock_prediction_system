@@ -41,6 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32,
         help="CNN 批次大小（默认 32）",
     )
+    parser.add_argument(
+        "--backend", choices=["auto", "mlp", "cnn"], default="auto",
+        help="训练后端；盲测演示建议使用 mlp",
+    )
+    parser.add_argument("--symbol", default="", help="模型适用股票代码")
+    parser.add_argument("--stock-name", default="", help="模型适用股票名称")
+    parser.add_argument("--data-source", default="", help="数据来源说明")
+    parser.add_argument("--adjust", default="", help="复权方式")
     return parser
 
 
@@ -49,13 +57,30 @@ def main(argv: list[str] | None = None) -> dict:
     args = build_parser().parse_args(argv)
 
     import pandas as pd
+    import sklearn
     from core.model_service import StockCNNService
 
     df = pd.read_csv(args.data)
-    svc = StockCNNService(model_dir=args.model_dir)
+    svc = StockCNNService(model_dir=args.model_dir, backend=args.backend)
     report = svc.train_with_time_split(
         df, epochs=args.epochs, batch_size=args.batch_size,
     )
+
+    metadata = {
+        "symbol": args.symbol,
+        "stock_name": args.stock_name,
+        "data_source": args.data_source,
+        "adjust": args.adjust,
+        "snapshot_date": str(df["timestamp"].iloc[-1])[:10],
+        "data_file": str(Path(args.data).as_posix()),
+        "sklearn_version": sklearn.__version__,
+    }
+    metadata = {key: value for key, value in metadata.items() if value}
+    meta_path = Path(args.model_dir) / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta.update(metadata)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    report.update(metadata)
 
     # 写入报告文件
     report_path = Path(args.model_dir) / "training_report.json"
