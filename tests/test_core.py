@@ -881,3 +881,53 @@ def test_load_local_env_does_not_override_existing_env(tmp_path, monkeypatch):
     load_local_env(env_file)
 
     assert os.environ["OPENAI_API_KEY"] == "from-shell"
+
+
+def test_rag_builds_keyword_index_without_optional_embeddings(tmp_path, monkeypatch):
+    """RAG falls back to a local keyword index when sentence-transformers is absent."""
+    import core.rag_service as rag_module
+    from core.rag_service import KEYWORD_BACKEND, RAGService
+
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir()
+    (knowledge_dir / "technical.md").write_text(
+        "# 技术分析基础\n\n## MACD 指标\n金叉是 DIF 上穿 DEA，常被视为趋势转强信号。\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(rag_module, "KNOWLEDGE_DIR", knowledge_dir)
+    monkeypatch.setattr(rag_module, "INDEX_PATH", tmp_path / "knowledge_index.json")
+    monkeypatch.setattr(
+        RAGService,
+        "_embedder",
+        lambda self: (_ for _ in ()).throw(ImportError("missing optional dependency")),
+    )
+
+    rag = RAGService()
+    assert rag.initialize()
+    assert rag.backend == KEYWORD_BACKEND
+    assert rag_module.INDEX_PATH.exists()
+    assert "金叉" in rag.search_formatted("什么是金叉")
+
+
+def test_health_reports_rag_source_ready_without_index(client, tmp_path, monkeypatch):
+    """/health stays lightweight but treats Markdown sources as buildable RAG data."""
+    import core.rag_service as rag_module
+
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir()
+    (knowledge_dir / "risk.md").write_text(
+        "# 风险管理\n\n## 仓位控制\n不要满仓，保留安全边际。\n",
+        encoding="utf-8",
+    )
+    index_path = tmp_path / "knowledge_index.json"
+
+    monkeypatch.setattr(rag_module, "KNOWLEDGE_DIR", knowledge_dir)
+    monkeypatch.setattr(rag_module, "INDEX_PATH", index_path)
+
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["rag_ready"] is True
+    assert data["rag_source_ready"] is True
+    assert data["rag_index_ready"] is False

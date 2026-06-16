@@ -172,7 +172,10 @@ def health():
       - llm_available: OPENAI_API_KEY 是否已配置
       - rag_ready:     RAG 索引文件是否存在（不加载 embedding 模型）
     """
-    from core.rag_service import INDEX_PATH
+    from core.rag_service import INDEX_PATH, has_knowledge_sources
+
+    rag_index_ready = INDEX_PATH.exists()
+    rag_source_ready = has_knowledge_sources()
 
     return jsonify({
         "status": "ok",
@@ -180,7 +183,9 @@ def health():
         "llm_available": bool(agent.llm.api_key),
         "llm_base_url": agent.llm.base_url if agent.llm.api_key else None,
         "llm_model": agent.llm.model_name if agent.llm.api_key else None,
-        "rag_ready": INDEX_PATH.exists(),
+        "rag_ready": rag_index_ready or rag_source_ready,
+        "rag_index_ready": rag_index_ready,
+        "rag_source_ready": rag_source_ready,
     })
 
 

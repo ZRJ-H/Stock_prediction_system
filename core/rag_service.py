@@ -1,28 +1,19 @@
 """
-RAG 知识库服务（RAG Service）
-=============================
-基于 sentence-transformers + NumPy 点积的本地投资知识检索（小规模下等价于 FAISS IndexFlatIP）：
+RAG knowledge service.
 
-文档管理：
-  - 源文件：data/knowledge/*.md（Markdown 格式）
-  - 分段策略：按 ## 二级标题切分，超长段落按段落再切（max 800 字符）
-  - 向量化：paraphrase-multilingual-MiniLM-L12-v2（中英文兼容）
-
-检索流程：
-  1. 用户查询 → 向量化
-  2. 与知识库做余弦相似度匹配（归一化向量点积）
-  3. 返回 top_k 个相关片段 + 相似度得分
-
-持久化：
-  - 构建后的索引缓存到 data/knowledge_index.json
-  - 下次启动直接加载，避免重复 embedding
+The preferred backend uses sentence-transformers embeddings.  When that
+optional dependency is not installed, the service falls back to a small local
+TF-IDF style index so a freshly cloned project can still answer from
+data/knowledge/*.md without downloading model files.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import re
+from collections import Counter
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -30,86 +21,79 @@ import numpy as np
 
 logger = logging.getLogger("stock_app.rag")
 
-# 路径常量
 BASE_DIR = Path(__file__).resolve().parent.parent
-KNOWLEDGE_DIR = BASE_DIR / "data" / "knowledge"    # Markdown 源文件目录
-INDEX_PATH = BASE_DIR / "data" / "knowledge_index.json"  # 向量索引缓存
+KNOWLEDGE_DIR = BASE_DIR / "data" / "knowledge"
+INDEX_PATH = BASE_DIR / "data" / "knowledge_index.json"
+
+EMBEDDING_BACKEND = "sentence_transformers"
+KEYWORD_BACKEND = "keyword_tfidf"
+INDEX_VERSION = 2
+
+
+def has_knowledge_sources() -> bool:
+    """Return True when Markdown source files exist without loading a model."""
+    return KNOWLEDGE_DIR.exists() and any(KNOWLEDGE_DIR.glob("*.md"))
 
 
 class RAGService:
-    """RAG 知识库服务类。
-
-    采用懒加载 + 缓存策略：
-      - 首次使用时调用 initialize() 构建/加载索引
-      - 索引持久化到 JSON，避免重复 embedding
-      - 类级别缓存 embedding 模型，避免重复加载大模型
-    """
+    """Markdown based knowledge retrieval with an embedding or keyword backend."""
 
     def __init__(self) -> None:
-        self._chunks: List[str] = []             # 文本块
-        self._titles: List[str] = []             # 每块对应的标题
-        self._embeddings: Optional[np.ndarray] = None  # 向量矩阵 (N, dim)
-        self._ready = False                       # 就绪标志
+        self._chunks: List[str] = []
+        self._titles: List[str] = []
+        self._embeddings: Optional[np.ndarray] = None
+        self._backend = EMBEDDING_BACKEND
+        self._vocab: List[str] = []
+        self._idf: List[float] = []
+        self._ready = False
 
     def is_ready(self) -> bool:
-        """知识库是否已加载就绪。"""
         return self._ready
 
+    @property
+    def backend(self) -> str:
+        return self._backend
+
     def initialize(self, force_rebuild: bool = False) -> bool:
-        """初始化知识库：加载已有索引或重新构建。
-
-        Args:
-            force_rebuild: 是否强制重建索引（忽略缓存）
-
-        Returns:
-            True 初始化成功，False 失败
-        """
+        """Load an existing index or build one from data/knowledge/*.md."""
         if self._ready and not force_rebuild:
             return True
         try:
-            if not force_rebuild and INDEX_PATH.exists():
-                return self._load_index()
+            if not force_rebuild and INDEX_PATH.exists() and self._load_index():
+                return True
             return self._build_index()
         except Exception:
-            logger.warning("RAG 初始化失败", exc_info=True)
+            logger.warning("RAG initialize failed", exc_info=True)
             return False
 
     def search(self, query: str, top_k: int = 3) -> List[Tuple[str, str, float]]:
-        """检索与查询最相关的知识片段。
-
-        Args:
-            query: 用户查询文本
-            top_k: 返回片段数
-
-        Returns:
-            [(标题, 文本片段, 相似度得分), ...] 列表
-        """
-        if not self._ready:
-            if not self.initialize():
-                return []
+        if not self._ready and not self.initialize():
+            return []
         if self._embeddings is None or len(self._chunks) == 0:
             return []
 
         try:
-            # 编码查询向量（归一化后点积 = 余弦相似度）
-            q_vec = self._embedder().encode([query], normalize_embeddings=True)
+            q_vec = self._encode_query(query)
+            if q_vec is None:
+                return []
             scores = np.dot(self._embeddings, q_vec.T).flatten()
-            # 按相似度降序排列
             indices = np.argsort(scores)[::-1][:top_k]
+            threshold = 0.2 if self._backend == EMBEDDING_BACKEND else 0.05
+
             results: List[Tuple[str, str, float]] = []
             for i in indices:
-                # 过滤低相关度噪声（阈值 0.2）
-                if scores[i] > 0.2:
+                if scores[i] > threshold:
                     results.append((self._titles[i], self._chunks[i], float(scores[i])))
             return results
         except Exception:
+            logger.warning("RAG search failed", exc_info=True)
             return []
 
     def search_formatted(self, query: str, top_k: int = 3) -> str:
-        """检索并格式化为可读文本（供 Chat UI 展示）。"""
         results = self.search(query, top_k=top_k)
         if not results:
             return "知识库中未找到相关内容。"
+
         lines = ["从知识库检索到以下相关内容：\n"]
         for i, (title, chunk, score) in enumerate(results):
             chunk_short = chunk[:300].replace("\n", " ")
@@ -117,10 +101,7 @@ class RAGService:
             lines.append(f"    {chunk_short}...")
         return "\n".join(lines)
 
-    # ── 私有方法 ──────────────────────────────────────────
-
     def _embedder(self):
-        """获取/缓存 sentence-transformers 模型（类级别单例）。"""
         from sentence_transformers import SentenceTransformer
 
         if not hasattr(RAGService, "_model"):
@@ -130,113 +111,163 @@ class RAGService:
         return RAGService._model
 
     def _load_docs(self) -> List[Tuple[str, str]]:
-        """加载 data/knowledge/ 下的所有 .md 文件。
-        Returns:
-            [(文档标题, 全文文本), ...]
-        """
         docs: List[Tuple[str, str]] = []
         if not KNOWLEDGE_DIR.exists():
             return docs
         for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
             text = path.read_text(encoding="utf-8")
-            # 标题优先用 # 一级标题，否则用文件名
             title = path.stem
-            m = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
-            if m:
-                title = m.group(1).strip()
+            match = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
+            if match:
+                title = match.group(1).strip()
             docs.append((title, text))
         return docs
 
     def _chunk_doc(self, title: str, text: str) -> List[Tuple[str, str]]:
-        """将单篇文档按 ## 二级标题切分为多个片段。
-
-        切分策略：
-          1. 按 ## 标题分割
-          2. 每个片段去掉 Markdown 标记和多余空白
-          3. 短于 20 字符的片段丢弃
-          4. 长于 800 字符的片段按自然段再切
-
-        Returns:
-            [(片段标题, 片段文本), ...]
-        """
         chunks: List[Tuple[str, str]] = []
-        # 按 ## 二级标题分割（保留分隔符）
         sections = re.split(r"\n(?=##\s)", text)
         for section in sections:
-            # 提取当前 section 的标题
             heading = title
-            hm = re.match(r"^##\s+(.+)", section)
-            if hm:
-                heading = f"{title} / {hm.group(1).strip()}"
+            heading_match = re.match(r"^##\s+(.+)", section)
+            if heading_match:
+                heading = f"{title} / {heading_match.group(1).strip()}"
 
-            # 清理 Markdown 标记和多余空白
             cleaned = re.sub(r"^#.*\n?", "", section, flags=re.MULTILINE).strip()
-            cleaned = re.sub(r"-{3,}", "", cleaned)       # 去掉水平分割线
-            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)  # 压缩多余空行
-
+            cleaned = re.sub(r"-{3,}", "", cleaned)
+            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
             if len(cleaned) < 20:
                 continue
 
-            # 过长片段按段落再切（目标：每块 ≤ 800 字符）
-            if len(cleaned) > 800:
-                paras = cleaned.split("\n\n")
-                buffer = ""
-                for p in paras:
-                    if len(buffer) + len(p) < 800:
-                        buffer += p + "\n\n"
-                    else:
-                        if buffer.strip():
-                            chunks.append((heading, buffer.strip()))
-                        buffer = p + "\n\n"
-                if buffer.strip():
-                    chunks.append((heading, buffer.strip()))
-            else:
+            if len(cleaned) <= 800:
                 chunks.append((heading, cleaned))
+                continue
+
+            buffer = ""
+            for para in cleaned.split("\n\n"):
+                if len(buffer) + len(para) < 800:
+                    buffer += para + "\n\n"
+                else:
+                    if buffer.strip():
+                        chunks.append((heading, buffer.strip()))
+                    buffer = para + "\n\n"
+            if buffer.strip():
+                chunks.append((heading, buffer.strip()))
         return chunks
 
     def _build_index(self) -> bool:
-        """构建向量索引：加载文档 → 切分 → 向量化 → 持久化。"""
         docs = self._load_docs()
         if not docs:
             return False
 
-        # 所有文档统一切分
         all_chunks: List[Tuple[str, str]] = []
         for title, text in docs:
             all_chunks.extend(self._chunk_doc(title, text))
         if not all_chunks:
             return False
 
-        self._titles = [t for t, _ in all_chunks]
-        self._chunks = [c for _, c in all_chunks]
+        self._titles = [title for title, _ in all_chunks]
+        self._chunks = [chunk for _, chunk in all_chunks]
 
-        # 向量化（归一化以支持余弦相似度）
-        model = self._embedder()
-        self._embeddings = model.encode(self._chunks, normalize_embeddings=True)
+        try:
+            model = self._embedder()
+            self._embeddings = np.asarray(
+                model.encode(self._chunks, normalize_embeddings=True)
+            )
+            self._backend = EMBEDDING_BACKEND
+            self._vocab = []
+            self._idf = []
+        except Exception:
+            logger.info(
+                "sentence-transformers unavailable; using keyword RAG index",
+                exc_info=True,
+            )
+            self._build_keyword_index()
 
-        # 持久化到磁盘
         self._save_index()
         self._ready = True
         return True
 
+    def _encode_query(self, query: str) -> Optional[np.ndarray]:
+        if self._backend == KEYWORD_BACKEND:
+            return self._keyword_vector(query)
+        return np.asarray(self._embedder().encode([query], normalize_embeddings=True))
+
+    def _build_keyword_index(self) -> None:
+        tokenized = [self._tokenize(chunk) for chunk in self._chunks]
+        doc_count = len(tokenized)
+        document_frequency: Counter[str] = Counter()
+        for tokens in tokenized:
+            document_frequency.update(set(tokens))
+
+        self._vocab = sorted(document_frequency)
+        self._idf = [
+            math.log((1 + doc_count) / (1 + document_frequency[token])) + 1
+            for token in self._vocab
+        ]
+
+        vectors = [self._keyword_vector_from_tokens(tokens) for tokens in tokenized]
+        self._embeddings = np.vstack(vectors) if vectors else np.empty((0, 0))
+        self._backend = KEYWORD_BACKEND
+
+    def _keyword_vector(self, text: str) -> Optional[np.ndarray]:
+        if not self._vocab:
+            return None
+        return self._keyword_vector_from_tokens(self._tokenize(text)).reshape(1, -1)
+
+    def _keyword_vector_from_tokens(self, tokens: List[str]) -> np.ndarray:
+        vocab_index = {token: i for i, token in enumerate(self._vocab)}
+        vec = np.zeros(len(self._vocab), dtype=float)
+        counts = Counter(tokens)
+        for token, count in counts.items():
+            idx = vocab_index.get(token)
+            if idx is not None:
+                vec[idx] = count * self._idf[idx]
+
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        return vec
+
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        text = text.lower()
+        tokens: List[str] = []
+
+        for word in re.findall(r"[a-z0-9_]+", text):
+            if len(word) >= 2:
+                tokens.append(word)
+
+        for run in re.findall(r"[\u4e00-\u9fff]+", text):
+            tokens.extend(run)
+            for size in (2, 3):
+                tokens.extend(run[i:i + size] for i in range(0, len(run) - size + 1))
+
+        return tokens
+
     def _save_index(self) -> None:
-        """将向量索引序列化到 JSON 文件。"""
         INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = {
+            "version": INDEX_VERSION,
+            "backend": self._backend,
             "titles": self._titles,
             "chunks": self._chunks,
             "embeddings": self._embeddings.tolist() if self._embeddings is not None else [],
+            "vocab": self._vocab,
+            "idf": self._idf,
         }
         INDEX_PATH.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def _load_index(self) -> bool:
-        """从 JSON 文件反序列化向量索引。"""
         try:
             data = json.loads(INDEX_PATH.read_text(encoding="utf-8"))
             self._titles = data["titles"]
             self._chunks = data["chunks"]
-            self._embeddings = np.array(data["embeddings"])
+            self._embeddings = np.asarray(data["embeddings"], dtype=float)
+            self._backend = data.get("backend", EMBEDDING_BACKEND)
+            self._vocab = data.get("vocab", [])
+            self._idf = data.get("idf", [])
             self._ready = True
             return True
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            logger.warning("RAG index is invalid; will rebuild", exc_info=True)
             return False

@@ -421,7 +421,7 @@ A: `pip install akshare`，设置环境变量 `USE_AKSHARE=1`。
 A: 贵州茅台专用模型不可用时，系统会降级为均线交叉判断。其他股票不会跨标的复用该模型。
 
 **Q: RAG 知识库如何构建？**
-A: 在 `data/knowledge/` 下放置 `.md` 文件，首次知识检索时自动构建索引。也可以启动后首次询问投资知识触发构建。
+A: 在 `data/knowledge/` 下放置 `.md` 文件即可。`data/knowledge_index.json` 是运行时产物，通常不会随仓库提交；新拉取项目后，首次知识检索会自动构建索引。有 `sentence-transformers` 时使用语义向量检索，未安装可选依赖时会自动降级为本地关键词索引。
 
 ## 候选股池
 
