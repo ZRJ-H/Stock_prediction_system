@@ -1,0 +1,15 @@
+{
+  "strategy_version": "paper-v1",
+  "initial_cash": 100000.0,
+  "stock_list": ["600519", "000001"],
+  "commission_rate": 0.0003,
+  "slippage_rate": 0.001,
+  "max_position_ratio": 0.3,
+  "signals": [
+    {"name": "STRONG_BUY", "action": "BUY", "min_score": 75, "max_score": null, "min_inclusive": true, "max_inclusive": false, "cash_ratio": 0.3, "sell_ratio": 0.0},
+    {"name": "BUY", "action": "BUY", "min_score": 60, "max_score": 75, "min_inclusive": true, "max_inclusive": false, "cash_ratio": 0.15, "sell_ratio": 0.0},
+    {"name": "HOLD", "action": "HOLD", "min_score": 45, "max_score": 60, "min_inclusive": false, "max_inclusive": false, "cash_ratio": 0.0, "sell_ratio": 0.0},
+    {"name": "SELL", "action": "SELL", "min_score": 30, "max_score": 45, "min_inclusive": false, "max_inclusive": true, "cash_ratio": 0.0, "sell_ratio": 0.5},
+    {"name": "STRONG_SELL", "action": "SELL", "min_score": null, "max_score": 30, "min_inclusive": true, "max_inclusive": true, "cash_ratio": 0.0, "sell_ratio": 1.0}
+  ]
+}

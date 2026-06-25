@@ -55,6 +55,8 @@ data/knowledge_index.json
 data/memory/
 data/blind_test/*.sqlite3
 data/blind_test/*.sqlite3-*
+data/paper_trading/*.sqlite3
+data/paper_trading/*.sqlite3-*
 
 # Logs
 *.log
