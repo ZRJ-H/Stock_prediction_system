@@ -705,3 +705,30 @@
 - `docs/archive/PROJECT_ASSESSMENT.md`
 - `README.md`
 - `docs/current/PROGRESS.md`
+
+---
+
+## 文档目录拆分（已完成）
+
+日期：2026-06-26
+执行人：Sisyphus
+本次目标：将当前开发文档和历史归档文档物理分目录，规定 agent 默认只读取当前开发文档。
+
+已完成：
+- 新建 `docs/current/` 和 `docs/archive/`，当前开发文档只保留在 `docs/current/`。
+- 将旧路线图、旧评估、历史里程碑、答辩材料和复盘说明移动到 `docs/archive/`。
+- 更新 `CLAUDE.md`、`README.md`、`docs/current/DOCUMENTATION_STATUS.md` 和 progress-updater skill 的路径规则。
+
+验证结果：
+- git diff --check: clean
+- pytest: 未运行（仅文档目录和引用调整）
+
+剩余风险：
+- 历史归档正文保留旧语境；只有用户明确要求历史复盘时才读取。
+
+涉及文件：
+- `CLAUDE.md`
+- `README.md`
+- `.claude/skills/progress-updater/SKILL.md`
+- `docs/current/`
+- `docs/archive/`
