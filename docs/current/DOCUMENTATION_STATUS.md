@@ -30,7 +30,7 @@
 |---|---|---|---|---|
 | Paper Trading M1 | 已完成 | `0db8e5a` | `paper-trading-m1` | 项目审查和设计 |
 | Paper Trading M2 | 已完成 | `937a938` | `paper-trading-m2` | 数据库与交易引擎 |
-| Paper Trading M3 | 待开始 | - | `paper-trading-m3` | API 与 Excel 报表 |
+| Paper Trading M3 | 已完成 | 当前工作区 | `paper-trading-m3` | API 与 Excel 报表 |
 | Paper Trading M4 | 待开始 | - | `paper-trading-m4` | 前端展示 |
 | Paper Trading M5 | 待开始 | - | `paper-trading-m5` | 定时任务与 Docker |
 | Paper Trading M6 | 待开始 | - | `paper-trading-m6` | 测试和文档 |

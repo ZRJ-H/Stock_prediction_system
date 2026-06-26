@@ -168,6 +168,12 @@ templates/index.html (前端 Chat UI)
 | POST | `/api/blind-test/challenges/<id>/reveal` | 揭晓真实行情并计分 |
 | GET | `/api/blind-test/stats?session_id=xxx` | 个人与全局盲测成绩 |
 | POST | `/api/blind-test/reset` | 开启新的个人统计轮次 |
+| GET | `/api/paper/account` | 模拟交易账户概览 |
+| GET | `/api/paper/positions` | 当前模拟持仓 |
+| GET | `/api/paper/orders?limit=100` | 模拟交易订单记录 |
+| GET | `/api/paper/equity` | 每日净值曲线 |
+| POST | `/api/paper/run` | 使用显式 `{scores, trading_date, dry_run}` 执行模拟交易 |
+| GET | `/api/paper/report.xlsx` | 导出模拟交易 Excel 报表 |
 
 ## 使用示例
 
@@ -437,7 +443,7 @@ A: 在 `data/knowledge/` 下放置 `.md` 文件即可。`data/knowledge_index.js
 | 1 | `main` | 单股票问答 Agent (行情+预测)，CSV 数据训练 |
 | 2 | `iter2-tools-rag-memory` | 12 工具系统 + RAG 知识库 + 记忆系统 + 选股引擎 |
 | 3 | `iter3-skill-system` | Skill 技能系统 (6 Skills + 结构化报告 + 评分体系) |
-| Paper Trading M1-M2 | `feature/paper-trading` | Paper trading design, SQLite database, and trading engine |
+| Paper Trading M1-M3 | `feature/paper-trading` | Paper trading design, SQLite database, trading engine, API, and Excel report |
 
 ## 免责声明
 

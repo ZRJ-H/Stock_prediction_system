@@ -732,3 +732,38 @@
 - `.claude/skills/progress-updater/SKILL.md`
 - `docs/current/`
 - `docs/archive/`
+
+---
+
+## Paper Trading M3（已完成）
+
+日期：2026-06-26
+执行人：Sisyphus
+本次目标：为纸上模拟交易补齐 Flask API 与 Excel 报表导出。
+
+已完成：
+- 新增 `/api/paper/account`、`/api/paper/positions`、`/api/paper/orders`、`/api/paper/equity`、`/api/paper/run`、`/api/paper/report.xlsx`。
+- 新增 `core/paper_report.py`，使用 `pandas` + `openpyxl` 生成多工作表 `.xlsx` 报表。
+- `POST /api/paper/run` 使用请求体显式 `scores`，严格校验股票代码、分数、日期和 `dry_run`。
+- `PaperTradingService.account_summary()` 暴露 `created_at`、`updated_at`，供 API 与报表元数据使用。
+- `PaperTradingService.run_scores()` 先全量校验股票和分数，再执行交易，避免多股票请求出现部分落库。
+- 新增 API 与报表测试，保留 M2 服务层回归测试。
+
+验证结果：
+- pytest -q tests/test_paper_trading.py tests/test_paper_api.py tests/test_paper_report.py: 33 passed
+- pytest -q: 122 passed, 2 warnings
+- git diff --check: clean
+
+剩余风险：
+- sklearn 旧模型 pickle 仍有版本警告，属于既有盲测模型兼容提示，非 M3 新增问题。
+
+涉及文件：
+- `app.py`
+- `core/paper_trading.py`
+- `core/paper_report.py`
+- `requirements.txt`
+- `tests/test_paper_api.py`
+- `tests/test_paper_report.py`
+- `tests/test_paper_trading.py`
+- `docs/current/DOCUMENTATION_STATUS.md`
+- `README.md`
