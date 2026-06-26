@@ -1,5 +1,7 @@
 # CC Autonomous Roadmap
 
+> ARCHIVE NOTICE: This file records the old E1-E7 autonomous roadmap. It is historical background only. For current document authority, read `../current/DOCUMENTATION_STATUS.md`; for current paper-trading work, read `../current/PAPER_TRADING_M1_DESIGN.md`.
+
 本文件是给 Claude Code / CC 使用的自动推进路线图。CC 进入项目后，应先阅读本文件，再开始执行。目标是让项目从当前“稳定可交付雏形”继续推进到“演示效果强、功能闭环完整、文档完备、代码可审查”的最终版本。
 
 ## 0. 执行原则

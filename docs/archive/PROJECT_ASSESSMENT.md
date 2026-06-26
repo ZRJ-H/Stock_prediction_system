@@ -1,5 +1,7 @@
 # 股票预测智能分析系统 — 项目现状与评估
 
+> ARCHIVE NOTICE: This is a 2026-05-27 assessment for the old `iter3-skill-system` state. It is not the current branch or task source. Current authority is `../current/DOCUMENTATION_STATUS.md`.
+
 > 评估日期：2026-05-27  
 > 当前分支：`iter3-skill-system`  
 > 最新提交：`51ab352` 迭代3：Skill系统重构
