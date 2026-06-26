@@ -19,15 +19,19 @@ Flask 主应用（Stock Prediction Web App）
 from __future__ import annotations
 
 import logging
+import math
 import os
+import re
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
 from core.agent import StockAgent
 from core.blind_test import BlindTestError, BlindTestService
 from core.config import load_local_env
 from core.model_service import StockCNNService
+from core.paper_report import PaperReportService
+from core.paper_trading import PaperTradingError, PaperTradingService
 
 # 日志配置
 logging.basicConfig(
@@ -47,6 +51,9 @@ app = Flask(__name__)
 agent = StockAgent()
 model_service = StockCNNService(model_dir=BASE_DIR / "models" / "blind_test")
 blind_test_service = BlindTestService(base_dir=BASE_DIR)
+paper_trading_service = PaperTradingService(base_dir=BASE_DIR)
+paper_report_service = PaperReportService(paper_trading_service)
+_PAPER_CODE_RE = re.compile(r"^\d{6}\Z")
 
 
 @app.route("/", methods=["GET"])
@@ -256,6 +263,119 @@ def model_report():
         })
     report["available"] = True
     return jsonify(report)
+
+
+def _paper_error(message: str, status: int = 400):
+    return jsonify({"error": message}), status
+
+
+def _paper_scores(data: dict) -> dict[str, float]:
+    scores = data.get("scores")
+    if not isinstance(scores, dict) or not scores:
+        raise PaperTradingError("scores must be a non-empty object")
+    normalized = {}
+    for code, score in scores.items():
+        if not isinstance(code, str) or not _PAPER_CODE_RE.fullmatch(code):
+            raise PaperTradingError("scores keys must be explicit six-digit stock codes")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)):
+            raise PaperTradingError("scores values must be finite numbers between 0 and 100")
+        if not 0 <= float(score) <= 100:
+            raise PaperTradingError("scores values must be finite numbers between 0 and 100")
+        normalized[code] = float(score)
+    return normalized
+
+
+def _paper_dry_run(data: dict) -> bool:
+    value = data.get("dry_run", False)
+    if not isinstance(value, bool):
+        raise PaperTradingError("dry_run must be a boolean")
+    return value
+
+
+def _paper_trading_date(data: dict) -> str | None:
+    value = data.get("trading_date")
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise PaperTradingError("trading_date must be an ISO date string")
+    return value
+
+
+@app.route("/api/paper/account", methods=["GET"])
+def paper_account():
+    """Return the paper-trading account summary."""
+    try:
+        return jsonify(paper_trading_service.account_summary())
+    except Exception:
+        logger.exception("读取模拟交易账户失败")
+        return _paper_error("模拟交易服务暂不可用，请稍后重试。", 500)
+
+
+@app.route("/api/paper/positions", methods=["GET"])
+def paper_positions():
+    """Return current paper-trading positions."""
+    try:
+        return jsonify(paper_trading_service.positions())
+    except Exception:
+        logger.exception("读取模拟交易持仓失败")
+        return _paper_error("模拟交易服务暂不可用，请稍后重试。", 500)
+
+
+@app.route("/api/paper/orders", methods=["GET"])
+def paper_orders():
+    """Return recent paper-trading orders."""
+    try:
+        limit = request.args.get("limit", 100, type=int)
+        return jsonify(paper_trading_service.orders(limit=limit or 100))
+    except Exception:
+        logger.exception("读取模拟交易订单失败")
+        return _paper_error("模拟交易服务暂不可用，请稍后重试。", 500)
+
+
+@app.route("/api/paper/equity", methods=["GET"])
+def paper_equity():
+    """Return the paper-trading daily equity curve."""
+    try:
+        return jsonify(paper_trading_service.equity_curve())
+    except Exception:
+        logger.exception("读取模拟交易净值失败")
+        return _paper_error("模拟交易服务暂不可用，请稍后重试。", 500)
+
+
+@app.route("/api/paper/run", methods=["POST"])
+def paper_run():
+    """Run paper trading with explicitly supplied stock scores."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _paper_error("请求体必须是 JSON 对象", 400)
+    try:
+        result = paper_trading_service.run_scores(
+            _paper_scores(data),
+            trading_date=_paper_trading_date(data),
+            dry_run=_paper_dry_run(data),
+        )
+    except (PaperTradingError, ValueError) as exc:
+        return _paper_error(str(exc), 400)
+    except Exception:
+        logger.exception("执行模拟交易失败")
+        return _paper_error("模拟交易服务暂不可用，请稍后重试。", 500)
+    return jsonify(result)
+
+
+@app.route("/api/paper/report.xlsx", methods=["GET"])
+def paper_report_xlsx():
+    """Download a multi-sheet Excel report for paper trading."""
+    try:
+        buffer = paper_report_service.generate_xlsx()
+    except Exception:
+        logger.exception("生成模拟交易报表失败")
+        return _paper_error("模拟交易报表暂不可用，请稍后重试。", 500)
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="paper_trading_report.xlsx",
+    )
 
 
 @app.route("/api/blind-test/config", methods=["GET"])
