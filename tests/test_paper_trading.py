@@ -267,3 +267,27 @@ def test_existing_position_is_repriced_before_buy_limit(tmp_path):
     assert item["reason"] == "insufficient_cash_or_position_limit"
     assert service.positions()[0]["latest_price"] == pytest.approx(200.0)
     assert service.positions()[0]["market_value"] == pytest.approx(60000.0)
+
+
+def test_account_summary_includes_timestamps(tmp_path):
+    service = _service(tmp_path)
+
+    account = service.account_summary()
+
+    assert account["created_at"]
+    assert account["updated_at"]
+
+
+def test_run_scores_validates_all_scores_before_writing(tmp_path):
+    service = _service(
+        tmp_path,
+        quotes={
+            "600519": _quote("600519", 100.0),
+            "000001": _quote("000001", 10.0),
+        },
+    )
+
+    with pytest.raises(ValueError, match="Score must be"):
+        service.run_scores({"600519": 80, "000001": 101}, trading_date="2026-06-25")
+
+    assert not service.db_path.exists()

@@ -225,9 +225,13 @@ class PaperTradingService:
 
         run_date = trading_date or date.today().isoformat()
         self._validate_date(run_date)
+        validated_scores = [
+            (self._normalize_code(code), self._validate_score(score))
+            for code, score in scores.items()
+        ]
         results = []
-        for code, score in scores.items():
-            results.append(self._run_one(self._normalize_code(code), self._validate_score(score), run_date, dry_run))
+        for code, score in validated_scores:
+            results.append(self._run_one(code, score, run_date, dry_run))
         account = None if dry_run else self.account_summary()
         return {
             "trading_date": run_date,
@@ -550,6 +554,8 @@ class PaperTradingService:
             "total_assets": total_assets,
             "total_return": total_return,
             "strategy_version": row["strategy_version"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
 
     def _position_row(self, conn: sqlite3.Connection, stock_code: str) -> sqlite3.Row | None:
