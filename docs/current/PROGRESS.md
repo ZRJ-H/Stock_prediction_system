@@ -1,8 +1,8 @@
 # 项目进度记录 (Progress Log)
 
-> 本文件是项目历程的统一入口，面向交接、复盘和期末答辩。
-> 详细问题审查、修复过程和每个里程碑的完整记录见 [REVIEW_HISTORY.md](../REVIEW_HISTORY.md)。
-> Claude Code / Agent 自动推进路线和执行流水见 [CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md)。
+> 本文件是当前开发进度入口，面向交接、复盘和当前阶段推进。
+> 当前文档读取规则见 [DOCUMENTATION_STATUS.md](DOCUMENTATION_STATUS.md)。
+> 历史里程碑、旧路线图、旧评估和答辩材料已归档到 `../archive/`；agent 默认不得读取。
 
 ---
 
@@ -10,12 +10,12 @@
 
 | 文件 | 定位 | 适合查看的内容 |
 |------|------|----------------|
-| `docs/PROGRESS.md` | 项目时间线总览 | 项目从安全修复到答辩包装的完整历程 |
-| `REVIEW_HISTORY.md` | 详细审查归档 | 每个问题的根因、修复方式、测试补充和里程碑细节 |
-| `CC_AUTONOMOUS_ROADMAP.md` | Agent 执行路线 | E1-E7 自动推进目标、验收标准和执行流水 |
-| `docs/DEFENSE_PACKAGE.md` | 答辩总包 | 5 分钟演示流程、PPT 大纲、答辩问答 |
-| `docs/PROJECT_TECHNICAL_EXPLAINER.md` | 技术说明 | 给未参与代码组员理解架构和模块 |
-| `docs/AGENT_DEVELOPMENT_NOTES.md` | Agent 经验 | 答辩讲技术心得、工具调用和防幻觉策略 |
+| `docs/current/PROGRESS.md` | 当前进度入口 | 当前阶段推进、交接和最新状态 |
+| `docs/archive/REVIEW_HISTORY.md` | 历史审查归档 | 仅在用户要求历史复盘时查看 |
+| `docs/archive/CC_AUTONOMOUS_ROADMAP.md` | 历史路线归档 | 旧 E1-E7 路线，不作为当前任务来源 |
+| `docs/archive/DEFENSE_PACKAGE.md` | 答辩归档 | 仅在用户要求答辩材料时查看 |
+| `docs/archive/PROJECT_TECHNICAL_EXPLAINER.md` | 技术说明归档 | 仅在用户要求历史技术说明时查看 |
+| `docs/archive/AGENT_DEVELOPMENT_NOTES.md` | Agent 经验归档 | 仅在用户要求经验复盘时查看 |
 
 ---
 
@@ -33,7 +33,7 @@
 | M5 / E5 交付整理 | 2026-06-03 | `3d7db01` | 65 passed | `DEMO_SCRIPT.md`、README 最终审查、演示链路整理 |
 | M6 / E6 训练报告展示 | 2026-06-03 | `dc3660c` | 67 passed | `/api/model/report` 与前端训练报告面板 |
 | M7 / E7 部署增强 | 2026-06-03 | `924eef4` | 69 passed | Dockerfile、`.dockerignore`、基础/可选依赖拆分、容器 HOST/PORT |
-| M8 规则体系整理 | 2026-06-03 | 待提交/已完成 | 69 passed | `CLAUDE.md` 瘦身、`docs/PROGRESS.md` 承接进度、progress-updater skill |
+| M8 规则体系整理 | 2026-06-03 | 待提交/已完成 | 69 passed | `CLAUDE.md` 瘦身、`docs/current/PROGRESS.md` 承接进度、progress-updater skill |
 | LLM 本地配置入口 | 2026-06-04 | 未提交改动 | 69 passed | `.env.example`、`core/config.py`、启动前加载 `.env` |
 | 前端 LLM 配置指南 | 2026-06-04 | 未提交改动 | 69 passed | 页面顶部“配置指南”，前端不接收、不保存 API Key |
 | 答辩包装文档 | 2026-06-04 | 未提交改动 | 文档改动未跑 pytest | `DEFENSE_PACKAGE.md`、`PROJECT_TECHNICAL_EXPLAINER.md`、`AGENT_DEVELOPMENT_NOTES.md` |
@@ -102,7 +102,7 @@
 
 日期：2026-05-27
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `Review #1`。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `Review #1`。
 
 本阶段通过一次系统性代码审查发现高风险问题：
 
@@ -131,7 +131,7 @@
 
 日期：2026-06-02
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 与旧版 `docs/PROGRESS.md`。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 与旧版 `docs/current/PROGRESS.md`。
 
 本阶段目标是把项目推进到可交付状态。
 
@@ -193,7 +193,7 @@
 
 日期：2026-06-02
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M1`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 002。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M1`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 002。
 
 核心交付：
 
@@ -225,7 +225,7 @@
 
 日期：2026-06-02
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M2`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 003。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M2`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 003。
 
 核心交付：
 
@@ -263,7 +263,7 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M3`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 004。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M3`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 004。
 
 核心交付：
 
@@ -295,7 +295,7 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M4`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 005。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M4`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 005。
 
 核心交付：
 
@@ -335,7 +335,7 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M5`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 006。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M5`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 006。
 
 核心交付：
 
@@ -367,7 +367,7 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M6`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 007。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M6`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 007。
 
 核心交付：
 
@@ -398,7 +398,7 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M7`、[CC_AUTONOMOUS_ROADMAP.md](../CC_AUTONOMOUS_ROADMAP.md) 记录 008。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M7`、[docs/archive/CC_AUTONOMOUS_ROADMAP.md](../docs/archive/CC_AUTONOMOUS_ROADMAP.md) 记录 008。
 
 核心交付：
 
@@ -428,13 +428,13 @@
 
 日期：2026-06-03
 
-详细来源：[REVIEW_HISTORY.md](../REVIEW_HISTORY.md) 的 `里程碑 M8`。
+详细来源：[REVIEW_HISTORY.md](../archive/REVIEW_HISTORY.md) 的 `里程碑 M8`。
 
 核心交付：
 
 - `CLAUDE.md` 瘦身，只保留长期项目规则。
 - 临时路线、历史流水和执行提示从 `CLAUDE.md` 中移出。
-- `docs/PROGRESS.md` 承接日常阶段记录。
+- `docs/current/PROGRESS.md` 承接日常阶段记录。
 - 新增 `.claude/skills/progress-updater/SKILL.md`，定义进度追加模板。
 - `.gitignore` 放行 `.claude/skills/**/SKILL.md`，方便提交项目级流程定义。
 
@@ -526,9 +526,9 @@
 
 本次目标：
 
-- 将 Review #1、阶段 A/B/C/D、M1-M8、06-04 配置与答辩包装整合进 `docs/PROGRESS.md`。
+- 将 Review #1、阶段 A/B/C/D、M1-M8、06-04 配置与答辩包装整合进 `docs/current/PROGRESS.md`。
 - 让 `PROGRESS.md` 成为项目时间线统一入口。
-- 保留 `REVIEW_HISTORY.md` 和 `CC_AUTONOMOUS_ROADMAP.md` 作为详细归档，不重复粘贴所有审查细节。
+- 保留 `REVIEW_HISTORY.md` 和 `docs/archive/CC_AUTONOMOUS_ROADMAP.md` 作为详细归档，不重复粘贴所有审查细节。
 
 本次原则：
 
@@ -678,3 +678,30 @@
 项目历程可以用下面这段话概括：
 
 > 本项目从一个股票预测和问答原型开始，先通过代码审查修复了 XSS、traceback 泄露、session 串号等安全问题，再逐步补齐工具系统、RAG 知识库、会话记忆、Skill 结构化报告、前端 ECharts 图表、LLM function calling、模型训练 CLI、训练报告展示和 Docker 部署。最后通过 `.env` 配置入口和答辩文档包装，把项目整理成一个可演示、可降级、可测试、可交接的 A 股智能分析助手。系统强调工具取数和风险提示，所有预测与分析仅供学习研究，不构成投资建议。
+
+---
+
+## 文档权威治理（已完成）
+
+日期：2026-06-26
+执行人：Sisyphus
+本次目标：防止旧路线图、旧评估和当前 paper-trading 计划并行时误导新 agent。
+
+已完成：
+- 新增 `docs/current/DOCUMENTATION_STATUS.md`，明确当前权威顺序、paper-trading 阶段状态和历史归档文档。
+- 在 `CLAUDE.md`、`docs/archive/CC_AUTONOMOUS_ROADMAP.md`、`docs/archive/PROJECT_ASSESSMENT.md`、`README.md`、`docs/current/PROGRESS.md` 增加最小权威/归档说明。
+
+验证结果：
+- git diff --check: clean
+- pytest: 未运行（仅文档治理改动）
+
+剩余风险：
+- 旧文档正文仍保留历史措辞，但入口处已标注归档状态。
+
+涉及文件：
+- `docs/current/DOCUMENTATION_STATUS.md`
+- `CLAUDE.md`
+- `docs/archive/CC_AUTONOMOUS_ROADMAP.md`
+- `docs/archive/PROJECT_ASSESSMENT.md`
+- `README.md`
+- `docs/current/PROGRESS.md`
