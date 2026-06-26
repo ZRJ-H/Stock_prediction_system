@@ -1,6 +1,7 @@
 flask
 numpy
 pandas
+openpyxl
 requests
 scikit-learn==1.8.0
 joblib
