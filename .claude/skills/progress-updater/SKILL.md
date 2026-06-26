@@ -1,13 +1,13 @@
 ---
 name: progress-updater
-description: Use this skill after completing code changes, debugging, refactoring, configuration changes, or experiment steps to update docs/PROGRESS.md.
+description: Use this skill after completing code changes, debugging, refactoring, configuration changes, or experiment steps to update docs/current/PROGRESS.md.
 ---
 
 # Progress Updater Skill
 
 ## Purpose
 
-当 Claude Code 完成一个阶段或里程碑后，自动更新 `docs/PROGRESS.md` 追加进度记录。
+当 Claude Code 完成一个阶段或里程碑后，自动更新 `docs/current/PROGRESS.md` 追加进度记录。
 
 ## Trigger
 
@@ -15,7 +15,7 @@ description: Use this skill after completing code changes, debugging, refactorin
 
 ## Action
 
-1. 读取 `docs/PROGRESS.md` 确认当前最新记录。
+1. 读取 `docs/current/PROGRESS.md` 确认当前最新记录。
 2. 按模板追加新条目到文件末尾。
 3. 不要覆盖或修改已有记录。
 
@@ -50,4 +50,4 @@ description: Use this skill after completing code changes, debugging, refactorin
 
 - 保持简洁，每条不超过 3 行展开。
 - 不记录 token、API key、账号等敏感信息。
-- 如果本阶段已记录在 `REVIEW_HISTORY.md`（里程碑级）或 `CC_AUTONOMOUS_ROADMAP.md`（路线图级），`PROGRESS.md` 只需简短引用，不重复复制。
+- 如果本阶段已记录在 `docs/archive/REVIEW_HISTORY.md`（里程碑级）或 `docs/archive/CC_AUTONOMOUS_ROADMAP.md`（路线图级），`docs/current/PROGRESS.md` 只需简短引用，不重复复制。

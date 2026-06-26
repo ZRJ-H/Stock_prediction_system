@@ -1,5 +1,9 @@
 # Claude Code Project Guide
 
+## Documentation Authority
+
+New agents must read only `CLAUDE.md`, `README.md`, and `docs/current/**` by default. Current active work is `feature/paper-trading`; its plan is `docs/current/PAPER_TRADING_M1_DESIGN.md`. `docs/archive/**` is historical archive and must not be read unless the user explicitly asks for historical review.
+
 基于 Flask 的 A 股股票分析助手。Web 聊天界面 + 行情/技术指标/基本面/新闻/CNN预测/RAG知识库 + LLM/规则双模式。
 
 ## 技术栈
@@ -20,7 +24,7 @@
 python app.py                    # http://127.0.0.1:5000
 
 # 测试
-pytest -q                        # 预期 69 passed
+pytest -q                        # 预期 102 passed
 
 # 模型训练
 python train_model.py --data dataset/tt.csv --model-dir models
@@ -50,7 +54,7 @@ tests/test_core.py               — 回归测试
 
 ## 禁止事项
 
-**禁止读取：** `.claude/`（除 `.claude/skills/*/SKILL.md`）、`__pycache__/`、`.pytest_cache/`、`.cache/`、`cache/`、运行产物
+**禁止读取：** `.claude/`（除 `.claude/skills/*/SKILL.md`）、`docs/archive/`（除非用户明确要求历史复盘/归档资料）、`__pycache__/`、`.pytest_cache/`、`.cache/`、`cache/`、运行产物
 
 **禁止操作：** `git reset --hard`、`git checkout --`（回滚文件）、删除用户文件或运行产物
 
@@ -91,6 +95,6 @@ tests/test_core.py               — 回归测试
 
 ## 进度记录
 
-日常进度记录在 [`docs/PROGRESS.md`](docs/PROGRESS.md)，里程碑级记录在 [`REVIEW_HISTORY.md`](REVIEW_HISTORY.md)，路线图在 [`CC_AUTONOMOUS_ROADMAP.md`](CC_AUTONOMOUS_ROADMAP.md)。
+日常进度记录在 [`docs/current/PROGRESS.md`](docs/current/PROGRESS.md)。当前开发文档只放在 `docs/current/`；历史里程碑、旧路线图、旧评估和答辩材料统一归档在 `docs/archive/`，agent 默认不得读取。
 
 阶段完成后，使用 `.claude/skills/progress-updater/SKILL.md` 追加进度。

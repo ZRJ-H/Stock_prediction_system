@@ -430,11 +430,14 @@ A: 在 `data/knowledge/` 下放置 `.md` 文件即可。`data/knowledge_index.js
 
 ## 迭代路线
 
+> This table records base-product history, not the current next-step plan. Current documentation authority is `docs/current/DOCUMENTATION_STATUS.md`; the active `feature/paper-trading` plan is `docs/current/PAPER_TRADING_M1_DESIGN.md`.
+
 | 迭代 | 分支 | 核心交付 |
 |------|------|----------|
 | 1 | `main` | 单股票问答 Agent (行情+预测)，CSV 数据训练 |
 | 2 | `iter2-tools-rag-memory` | 12 工具系统 + RAG 知识库 + 记忆系统 + 选股引擎 |
 | 3 | `iter3-skill-system` | Skill 技能系统 (6 Skills + 结构化报告 + 评分体系) |
+| Paper Trading M1-M2 | `feature/paper-trading` | Paper trading design, SQLite database, and trading engine |
 
 ## 免责声明
 
