@@ -1,4 +1,4 @@
-"""
+﻿"""
 RAG knowledge service.
 
 The preferred backend uses sentence-transformers embeddings.  When that
@@ -9,6 +9,7 @@ data/knowledge/*.md without downloading model files.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import math
@@ -102,10 +103,11 @@ class RAGService:
         return "\n".join(lines)
 
     def _embedder(self):
-        from sentence_transformers import SentenceTransformer
+        sentence_transformers = importlib.import_module("sentence_transformers")
+        sentence_transformer = sentence_transformers.SentenceTransformer
 
         if not hasattr(RAGService, "_model"):
-            RAGService._model = SentenceTransformer(
+            RAGService._model = sentence_transformer(
                 "paraphrase-multilingual-MiniLM-L12-v2"
             )
         return RAGService._model

@@ -1,6 +1,7 @@
-import numpy as np
+﻿import numpy as np
 from scipy import stats
-import tensorflow as tf
+import importlib
+from pathlib import Path
 import pandas as pd
 from sklearn.preprocessing import minmax_scale
 from sklearn.model_selection import train_test_split
@@ -8,9 +9,11 @@ from sklearn.preprocessing import OneHotEncoder
 import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+tf = importlib.import_module('tensorflow.compat.v1')
+tf.disable_v2_behavior()
 
 # 读取数据集
-df = pd.read_csv(".\dataset\tt.csv")
+df = pd.read_csv(Path("dataset") / "tt.csv")
 # 数据归一化
 df['open'] = minmax_scale(df['open'])
 df['high'] = minmax_scale(df['high'])

@@ -794,3 +794,28 @@
 涉及文件：
 - `templates/index.html`
 - `tests/test_paper_frontend.py`
+---
+
+## 编辑器诊断清理（已完成）
+
+日期：2026-06-27
+执行人：Claude Code
+本次目标：清理 `stock.py` 与 `core/rag_service.py` 的可选依赖和路径转义编辑器飘红。
+
+已完成：
+- `stock.py` 改为动态加载 `tensorflow.compat.v1`，并将数据集路径改为 `Path("dataset") / "tt.csv"`。
+- `core/rag_service.py` 将可选 `sentence_transformers` 改为 `importlib` 动态加载，保留原有 keyword RAG 降级逻辑。
+
+验证结果：
+- `lsp_diagnostics stock.py`: clean
+- `lsp_diagnostics core/rag_service.py`: clean
+- `pytest -q tests/test_core.py`: 71 passed
+- `pytest -q`: 123 passed, 2 warnings（既有 sklearn pickle 版本提示）
+- `git diff --check`: clean（仅 Windows LF/CRLF 提示）
+
+剩余风险：
+- TensorFlow 与 sentence-transformers 仍是可选依赖；未安装时对应高级能力不可用或走降级路径。
+
+涉及文件：
+- `stock.py`
+- `core/rag_service.py`
