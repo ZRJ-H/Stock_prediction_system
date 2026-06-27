@@ -1,4 +1,4 @@
-# 项目进度记录 (Progress Log)
+﻿# 项目进度记录 (Progress Log)
 
 > 本文件是当前开发进度入口，面向交接、复盘和当前阶段推进。
 > 当前文档读取规则见 [DOCUMENTATION_STATUS.md](DOCUMENTATION_STATUS.md)。
@@ -767,3 +767,30 @@
 - `tests/test_paper_trading.py`
 - `docs/current/DOCUMENTATION_STATUS.md`
 - `README.md`
+
+---
+
+## Paper Trading M4 前端展示（已完成）
+
+日期：2026-06-27
+执行人：Claude Code
+本次目标：在现有原生 HTML/CSS/JS 页面中加入模拟交易仪表盘，不引入新前端框架。
+
+已完成：
+- `templates/index.html` 新增模拟交易面板，展示账户、持仓、订单、净值曲线、最后运行时间、显式 scores JSON 运行入口和 Excel 导出。
+- `tests/test_paper_frontend.py` 新增前端烟测，锁定 M4 DOM 标记、免责声明和 `/api/paper/*` 路径。
+- Visual QA 双路审查 PASS；已修复移动端按钮宽度和净值图 resize listener guard 两个低风险建议。
+
+验证结果：
+- `pytest -q tests/test_paper_frontend.py tests/test_paper_api.py`: 17 passed
+- `pytest -q`: 123 passed, 2 warnings（既有 sklearn pickle 版本提示）
+- `git diff --check`: clean（仅 Windows LF/CRLF 提示）
+- `lsp_diagnostics templates/index.html`: 未运行成功，原因是当前环境未安装已配置的 `biome` LSP。
+
+剩余风险：
+- 后续 M5 仍需补充定时脚本与 Docker/Linux 运行方式。
+- 浏览器控制台仅发现无关 `/favicon.ico` 404，不影响 M4 逻辑。
+
+涉及文件：
+- `templates/index.html`
+- `tests/test_paper_frontend.py`
