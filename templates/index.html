@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <!--
   股票分析助手 — 前端聊天界面
   =============================
@@ -44,6 +44,77 @@
       font-size: 12px; padding: 2px 8px; cursor: pointer;
     }
     .config-link:hover { border-color: #2563eb; color: #2563eb; }
+
+    /* ── 模拟交易仪表盘 ── */
+    .paper-panel {
+      --paper-blue: #2563eb;
+      --paper-blue-soft: #eff6ff;
+      --paper-green: #059669;
+      --paper-red: #dc2626;
+      --paper-amber: #d97706;
+      --paper-ink: #111827;
+      --paper-muted: #6b7280;
+      --paper-line: #e5e7eb;
+      --paper-card: #f9fafb;
+      --paper-radius: 10px;
+      max-width: 800px; width: 100%; margin: 0 auto; display: none;
+      background: #fff; border-bottom: 1px solid var(--paper-line); padding: 12px 16px;
+    }
+    .paper-panel.visible { display: block; }
+    .paper-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .paper-title { font-size: 14px; font-weight: 700; color: var(--paper-ink); }
+    .paper-subtitle { margin-top: 2px; font-size: 11px; color: var(--paper-muted); }
+    .paper-close {
+      background: none; border: 0; font-size: 18px; cursor: pointer; color: #9ca3af; padding: 0 4px;
+    }
+    .paper-close:hover { color: #374151; }
+    .paper-disclaimer {
+      margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+      background: #fffbeb; color: #92400e; font-size: 12px;
+    }
+    .paper-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+    .paper-card { padding: 8px 10px; border-radius: var(--paper-radius); background: var(--paper-card); border: 1px solid var(--paper-line); }
+    .paper-card strong { display: block; font-size: 11px; color: var(--paper-muted); font-weight: 600; }
+    .paper-card span { display: block; margin-top: 4px; color: var(--paper-ink); font-weight: 700; font-size: 14px; }
+    .paper-card .paper-positive { color: var(--paper-green); }
+    .paper-card .paper-negative { color: var(--paper-red); }
+    .paper-controls { margin-top: 12px; display: grid; gap: 8px; }
+    .paper-score-label { font-size: 12px; color: #374151; font-weight: 600; }
+    .paper-score-input {
+      width: 100%; min-height: 86px; resize: vertical; padding: 9px; border: 1px solid #d1d5db;
+      border-radius: var(--paper-radius); color: #1f2937; font-family: Consolas, "Courier New", monospace; font-size: 12px;
+    }
+    .paper-score-input:focus { outline: none; border-color: var(--paper-blue); box-shadow: 0 0 0 2px var(--paper-blue-soft); }
+    .paper-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .paper-date-input { padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 8px; color: #374151; }
+    .paper-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #4b5563; }
+    .paper-run,
+    .paper-export {
+      border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; color: #fff; background: var(--paper-blue);
+    }
+    .paper-export { background: #eef2ff; color: #3730a3; text-decoration: none; font-size: 13px; }
+    .paper-run:disabled { opacity: 0.55; cursor: not-allowed; }
+    .paper-status { min-height: 18px; font-size: 12px; color: var(--paper-muted); }
+    .paper-status.error { color: var(--paper-red); }
+    .paper-status.ok { color: var(--paper-green); }
+    .paper-section-title { margin-top: 12px; font-size: 13px; font-weight: 700; color: #334155; }
+    .paper-table-wrap { margin-top: 6px; overflow-x: auto; border: 1px solid var(--paper-line); border-radius: var(--paper-radius); }
+    .paper-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .paper-table th,
+    .paper-table td { padding: 7px 9px; border-bottom: 1px solid var(--paper-line); text-align: left; white-space: nowrap; }
+    .paper-table th { background: #f3f4f6; color: #4b5563; font-weight: 600; }
+    .paper-table tr:last-child td { border-bottom: 0; }
+    .paper-empty { padding: 10px; color: #9ca3af; font-size: 12px; text-align: center; }
+    .paper-equity-chart { width: 100%; height: 260px; margin-top: 6px; border: 1px solid var(--paper-line); border-radius: var(--paper-radius); }
+    .paper-chart-fallback { padding: 24px 10px; color: #9ca3af; font-size: 12px; text-align: center; }
+    @media (max-width: 560px) {
+      .paper-grid { grid-template-columns: 1fr; }
+      .paper-action-row { align-items: stretch; flex-direction: column; }
+      .paper-date-input,
+      .paper-run,
+      .paper-export { width: 100%; text-align: center; }
+      .paper-check { width: 100%; }
+    }
 
     /* ── LLM 配置指南 ── */
     .llm-guide {
@@ -285,6 +356,7 @@
     <span id="llmStatus" class="status off">LLM 检测中...</span>
     <button class="config-link" id="llmGuideBtn" onclick="toggleLlmGuide()" title="查看本地 LLM 配置步骤">配置指南</button>
     <span id="ragStatus" class="status off">RAG</span>
+    <button class="config-link" id="paperHeaderBtn" onclick="togglePaperPanel()" title="查看模拟交易仪表盘">模拟交易</button>
   </div>
 
   <!-- ── LLM 配置指南（只展示步骤，不接收或保存 API Key） ── -->
@@ -355,6 +427,44 @@ OPENAI_MODEL=deepseek-chat</code>
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ── 模拟交易仪表盘（默认折叠，仅使用用户显式输入分数） ── -->
+  <section class="paper-panel" id="paperPanel">
+    <div class="paper-header">
+      <div>
+        <div class="paper-title">模拟交易仪表盘</div>
+        <div class="paper-subtitle">输入明确 JSON 分数后，执行纸上交易策略。</div>
+      </div>
+      <button class="paper-close" onclick="hidePaperPanel()" title="关闭模拟交易">&times;</button>
+    </div>
+    <div class="paper-disclaimer">仅为模拟交易与技术演示，不构成投资建议。</div>
+    <div class="paper-grid">
+      <div class="paper-card"><strong>初始资金 initial_cash</strong><span id="paperInitialCash">--</span></div>
+      <div class="paper-card"><strong>当前现金 cash</strong><span id="paperCash">--</span></div>
+      <div class="paper-card"><strong>持仓市值</strong><span id="paperPositionValue">--</span></div>
+      <div class="paper-card"><strong>总资产 total_assets</strong><span id="paperTotalAssets">--</span></div>
+      <div class="paper-card"><strong>总收益率</strong><span id="paperTotalReturn">--</span></div>
+      <div class="paper-card"><strong>最大回撤</strong><span id="paperMaxDrawdown">--</span></div>
+      <div class="paper-card"><strong>最后运行时间</strong><span id="paperLastRunTime">尚未运行</span></div>
+    </div>
+    <div class="paper-controls">
+      <label class="paper-score-label" for="paperScoreInput">显式评分 JSON（股票代码 → 0-100 分，不自动生成）</label>
+      <textarea id="paperScoreInput" class="paper-score-input" spellcheck="false" placeholder='例如：{"600519": 80, "000001": 55}'></textarea>
+      <div class="paper-action-row">
+        <input id="paperDateInput" class="paper-date-input" type="date" title="可选交易日期" />
+        <label class="paper-check"><input id="paperDryRunInput" type="checkbox" /> dry_run 预演</label>
+        <button id="paperRunBtn" class="paper-run" onclick="runPaperTrade()">运行模拟交易</button>
+        <button id="paperExportBtn" class="paper-export" onclick="exportPaperReport()">导出 Excel</button>
+      </div>
+      <div id="paperStatus" class="paper-status">展开后会加载账户、持仓、订单和净值曲线。</div>
+    </div>
+    <div class="paper-section-title">当前持仓</div>
+    <div class="paper-table-wrap" id="paperPositionsWrap"></div>
+    <div class="paper-section-title">最近交易记录</div>
+    <div class="paper-table-wrap" id="paperOrdersWrap"></div>
+    <div class="paper-section-title">净值曲线</div>
+    <div id="paperEquityChart" class="paper-equity-chart"></div>
   </section>
 
   <!-- ── ECharts 图表面板（默认隐藏，检测到股票代码后显示） ── -->
@@ -772,6 +882,323 @@ OPENAI_MODEL=deepseek-chat</code>
     }
 
     loadBlindConfig();
+
+    // ═══════════════════════════════════════════════════════
+    // 模拟交易仪表盘（只接收用户显式 JSON 分数）
+    // ═══════════════════════════════════════════════════════
+    let paperEquityChartInstance = null;
+    let paperEquityResizeBound = false;
+
+    function resizePaperEquityChart() {
+      if (paperEquityChartInstance) paperEquityChartInstance.resize();
+    }
+
+    function togglePaperPanel() {
+      const panel = document.getElementById('paperPanel');
+      const visible = panel.classList.toggle('visible');
+      document.getElementById('paperHeaderBtn').textContent = visible ? '收起模拟' : '模拟交易';
+      if (visible) {
+        loadPaperDashboard();
+        setTimeout(function() {
+          if (paperEquityChartInstance) paperEquityChartInstance.resize();
+        }, 0);
+      }
+    }
+
+    function hidePaperPanel() {
+      document.getElementById('paperPanel').classList.remove('visible');
+      document.getElementById('paperHeaderBtn').textContent = '模拟交易';
+    }
+
+    function setPaperStatus(message, kind) {
+      const status = document.getElementById('paperStatus');
+      status.className = 'paper-status' + (kind ? ' ' + kind : '');
+      status.textContent = message;
+    }
+
+    function paperRequest(url, options) {
+      return fetch(url, options).then(function(r) {
+        return r.json().then(function(data) {
+          if (!r.ok || data.error) throw new Error(data.error || '请求失败');
+          return data;
+        });
+      });
+    }
+
+    function loadPaperDashboard() {
+      setPaperStatus('正在加载模拟交易数据...', '');
+      Promise.all([
+        paperRequest('/api/paper/account'),
+        paperRequest('/api/paper/positions'),
+        paperRequest('/api/paper/orders?limit=100'),
+        paperRequest('/api/paper/equity')
+      ])
+      .then(function(results) {
+        const account = results[0];
+        const positions = results[1];
+        const orders = results[2];
+        const equity = results[3];
+        renderPaperAccount(account, equity, orders);
+        renderPaperPositions(positions);
+        renderPaperOrders(orders);
+        renderPaperEquity(equity);
+        setPaperStatus('模拟交易数据已更新。', 'ok');
+      })
+      .catch(function(e) {
+        setPaperStatus(e.message || '模拟交易数据加载失败', 'error');
+      });
+    }
+
+    function paperNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatPaperMoney(value) {
+      const number = paperNumber(value);
+      return number === null ? '--' : '¥' + number.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function formatPaperPercent(value) {
+      const number = paperNumber(value);
+      return number === null ? '--' : (number * 100).toFixed(2) + '%';
+    }
+
+    function formatPaperValue(value) {
+      return value === null || value === undefined || value === '' ? '--' : String(value);
+    }
+
+    function setPaperMetric(id, value, toneValue) {
+      const element = document.getElementById(id);
+      element.textContent = value;
+      element.className = '';
+      if (toneValue !== undefined && toneValue !== null) {
+        const number = paperNumber(toneValue);
+        if (number > 0) element.className = 'paper-positive';
+        if (number < 0) element.className = 'paper-negative';
+      }
+    }
+
+    function renderPaperAccount(account, equity, orders) {
+      const latestEquity = equity && equity.length ? equity[equity.length - 1] : null;
+      const maxDrawdown = equity && equity.length
+        ? equity.reduce(function(worst, item) {
+            const value = paperNumber(item.max_drawdown);
+            return value === null ? worst : Math.min(worst, value);
+          }, 0)
+        : 0;
+      const lastRunTime = orders && orders.length
+        ? orders[0].created_at
+        : (latestEquity ? latestEquity.created_at : '尚未运行');
+
+      setPaperMetric('paperInitialCash', formatPaperMoney(account.initial_cash));
+      setPaperMetric('paperCash', formatPaperMoney(account.cash));
+      setPaperMetric('paperPositionValue', formatPaperMoney(account.position_value));
+      setPaperMetric('paperTotalAssets', formatPaperMoney(account.total_assets));
+      setPaperMetric('paperTotalReturn', formatPaperPercent(account.total_return), account.total_return);
+      setPaperMetric('paperMaxDrawdown', formatPaperPercent(maxDrawdown), maxDrawdown);
+      setPaperMetric('paperLastRunTime', formatPaperValue(lastRunTime));
+    }
+
+    function clearPaperNode(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function renderPaperTable(containerId, columns, rows, emptyText) {
+      const container = document.getElementById(containerId);
+      clearPaperNode(container);
+      if (!rows || !rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'paper-empty';
+        empty.textContent = emptyText;
+        container.appendChild(empty);
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'paper-table';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      columns.forEach(function(column) {
+        const th = document.createElement('th');
+        th.textContent = column.label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      rows.forEach(function(row) {
+        const tr = document.createElement('tr');
+        columns.forEach(function(column) {
+          const td = document.createElement('td');
+          const raw = row[column.key];
+          td.textContent = column.format ? column.format(raw, row) : formatPaperValue(raw);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    function renderPaperPositions(positions) {
+      renderPaperTable('paperPositionsWrap', [
+        {label: '代码', key: 'stock_code'},
+        {label: '名称', key: 'stock_name'},
+        {label: '数量', key: 'quantity'},
+        {label: '成本', key: 'avg_cost', format: formatPaperMoney},
+        {label: '最新价', key: 'latest_price', format: formatPaperMoney},
+        {label: '市值', key: 'market_value', format: formatPaperMoney},
+        {label: '浮动盈亏', key: 'floating_pnl', format: formatPaperMoney},
+        {label: '更新时间', key: 'updated_at'}
+      ], positions, '暂无当前持仓。');
+    }
+
+    function renderPaperOrders(orders) {
+      renderPaperTable('paperOrdersWrap', [
+        {label: '日期', key: 'trading_date'},
+        {label: '代码', key: 'stock_code'},
+        {label: '信号', key: 'signal'},
+        {label: '动作', key: 'action'},
+        {label: '分数', key: 'score'},
+        {label: '价格', key: 'price', format: formatPaperMoney},
+        {label: '数量', key: 'quantity'},
+        {label: '状态', key: 'status'},
+        {label: '原因', key: 'reason'},
+        {label: '时间', key: 'created_at'}
+      ], orders, '暂无最近交易记录。');
+    }
+
+    function renderPaperEquity(equity) {
+      const box = document.getElementById('paperEquityChart');
+      if (!equity || !equity.length) {
+        if (paperEquityChartInstance) {
+          paperEquityChartInstance.dispose();
+          paperEquityChartInstance = null;
+        }
+        clearPaperNode(box);
+        const empty = document.createElement('div');
+        empty.className = 'paper-chart-fallback';
+        empty.textContent = '暂无净值曲线。';
+        box.appendChild(empty);
+        return;
+      }
+      if (!window.echarts) {
+        if (paperEquityChartInstance) {
+          paperEquityChartInstance.dispose();
+          paperEquityChartInstance = null;
+        }
+        clearPaperNode(box);
+        const fallback = document.createElement('div');
+        fallback.className = 'paper-chart-fallback';
+        fallback.textContent = 'ECharts 未加载，账户、持仓和订单仍可正常查看。';
+        box.appendChild(fallback);
+        return;
+      }
+      if (!paperEquityChartInstance) {
+        clearPaperNode(box);
+        paperEquityChartInstance = echarts.init(box);
+        if (!paperEquityResizeBound) {
+          window.addEventListener('resize', resizePaperEquityChart);
+          paperEquityResizeBound = true;
+        }
+      }
+      paperEquityChartInstance.setOption({
+        tooltip: {trigger: 'axis'},
+        grid: {left: 60, right: 18, top: 25, bottom: 45},
+        xAxis: {
+          type: 'category',
+          data: equity.map(function(item) { return item.trading_date; }),
+          axisLabel: {fontSize: 10}
+        },
+        yAxis: {
+          type: 'value',
+          scale: true,
+          axisLabel: {fontSize: 10},
+          splitLine: {lineStyle: {color: '#f0f0f0'}}
+        },
+        dataZoom: [{type: 'inside'}, {type: 'slider', height: 18, bottom: 5}],
+        series: [{
+          name: '总资产',
+          type: 'line',
+          data: equity.map(function(item) { return item.total_assets; }),
+          symbol: 'circle',
+          symbolSize: 5,
+          lineStyle: {color: '#2563eb', width: 2},
+          itemStyle: {color: '#2563eb'},
+          areaStyle: {color: '#eff6ff'}
+        }]
+      }, true);
+    }
+
+    function validatePaperScores() {
+      let scores;
+      try {
+        scores = JSON.parse(document.getElementById('paperScoreInput').value.trim());
+      } catch (e) {
+        throw new Error('评分 JSON 解析失败，请输入对象格式。');
+      }
+      if (Object.prototype.toString.call(scores) !== '[object Object]' || Object.keys(scores).length === 0) {
+        throw new Error('评分必须是非空 JSON 对象。');
+      }
+      Object.keys(scores).forEach(function(code) {
+        const value = scores[code];
+        if (!/^\d{6}$/.test(code)) {
+          throw new Error('股票代码必须是严格 6 位数字：' + code);
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
+          throw new Error('评分必须是 0 到 100 的有限数字：' + code);
+        }
+      });
+      return scores;
+    }
+
+    function validatePaperDate() {
+      const value = document.getElementById('paperDateInput').value.trim();
+      if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        throw new Error('交易日期必须匹配 YYYY-MM-DD。');
+      }
+      return value;
+    }
+
+    function runPaperTrade() {
+      const button = document.getElementById('paperRunBtn');
+      let payload;
+      try {
+        const date = validatePaperDate();
+        payload = {
+          scores: validatePaperScores(),
+          dry_run: document.getElementById('paperDryRunInput').checked
+        };
+        if (date) payload.trading_date = date;
+      } catch (e) {
+        setPaperStatus(e.message, 'error');
+        return;
+      }
+      button.disabled = true;
+      setPaperStatus('正在运行模拟交易...', '');
+      paperRequest('/api/paper/run', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      })
+      .then(function(data) {
+        const count = data.results ? data.results.length : 0;
+        setPaperStatus('模拟交易运行完成：' + data.trading_date + '，处理 ' + count + ' 只股票。', 'ok');
+        return loadPaperDashboard();
+      })
+      .catch(function(e) {
+        setPaperStatus(e.message || '模拟交易运行失败', 'error');
+      })
+      .finally(function() {
+        button.disabled = false;
+      });
+    }
+
+    function exportPaperReport() {
+      window.location.href = '/api/paper/report.xlsx';
+    }
 
     // ═══════════════════════════════════════════════════════
     // 健康检查：拉取后端状态并更新状态指示灯
